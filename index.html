@@ -24,13 +24,10 @@
   .brand{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}
   .brand h1{font-size:20px;margin:0}
   .brand p{margin:0;opacity:0.95;font-size:14px}
-  /* Збільшили основну ширину контейнера, щоб central column міг бути ширшим */
   main.container{max-width:1500px;margin:18px auto;padding:12px;display:block}
 
-  /* layout: left sidebar | center map | right panel */
   .layout{display:grid;grid-template-columns:300px 1fr 380px;gap:14px;align-items:start}
   @media(min-width:1100px){
-    /* на ПК збільшуємо центральну колонку у 1.5 раза */
     .layout{grid-template-columns:300px 1.5fr 380px;}
   }
   @media(max-width:1100px){
@@ -72,49 +69,38 @@
   .status{font-size:13px;color:var(--muted);margin-top:8px}
   footer{max-width:1200px;margin:18px auto;padding:12px;color:#666;font-size:13px;text-align:center}
 
-  /* --- Toggle switch (static box in top-right of map) --- */
-  /* container (rounded rectangle) */
+  /* Toggle (зменшено до ~0.75 розміру) */
   .map-toggle {
     position: absolute;
     top: 12px;
     right: 12px;
     z-index: 1200;
-    width: 92px;
-    height: 42px;
-    border-radius: 22px;
-    background: #e6e6e6; /* OFF background */
+    width: 69px;    /* 92 * 0.75 ≈ 69 */
+    height: 32px;   /* 42 * 0.75 = 31.5 ≈ 32 */
+    border-radius: 20px;
+    background: #e6e6e6;
     display: flex;
     align-items: center;
-    padding: 5px;
+    padding: 4px;
     box-shadow: 0 6px 18px rgba(0,0,0,0.12);
     cursor: pointer;
     transition: background-color .25s ease, box-shadow .2s ease;
     border: 1px solid rgba(0,0,0,0.06);
   }
-  .map-toggle.on { background: #eaffec; } /* gentle light green when ON */
-  .map-toggle.off { background: #f0f0f0; } /* grey when OFF */
+  .map-toggle.on { background: #eaffec; }
+  .map-toggle.off { background: #f0f0f0; }
 
-  /* knob */
   .map-toggle .knob {
-    width: 32px;
-    height: 32px;
+    width: 24px;   /* 32 * 0.75 = 24 */
+    height: 24px;
     border-radius: 50%;
-    background: #9be6a3; /* default ON color */
+    background: #9be6a3;
     box-shadow: 0 6px 14px rgba(0,0,0,0.18);
     transition: transform .25s cubic-bezier(.2,.9,.2,1), background-color .25s ease;
-    transform: translateX(0); /* left pos */
+    transform: translateX(0);
   }
-  /* offset to right when on */
-  .map-toggle.on .knob { transform: translateX(46px); background: #9be6a3; } /* slide right, green */
-  .map-toggle.off .knob { transform: translateX(0); background: #bdbdbd; } /* left pos, grey */
-  /* optional small label text */
-  .map-toggle .label {
-    font-size:11px;
-    color:#334;
-    margin-left:8px;
-    user-select:none;
-    opacity:0.9;
-  }
+  .map-toggle.on .knob { transform: translateX(34px); background: #9be6a3; } /* 46 * 0.75 ≈ 34.5 -> 34 */
+  .map-toggle.off .knob { transform: translateX(0); background: #bdbdbd; }
 </style>
 </head>
 <body>
@@ -128,7 +114,7 @@
 <main class="container">
   <div class="layout">
 
-    <!-- LEFT: FILTERS & district file load -->
+    <!-- LEFT -->
     <aside class="sidebar" id="filters">
       <h3>Фільтри та файли</h3>
 
@@ -161,7 +147,11 @@
           <label><input id="crit_parks" type="checkbox" class="crit" data-crit="parks" /> Парки та зони відпочинку</label>
           <label><input id="crit_dog" type="checkbox" class="crit" data-crit="dogparks" /> Місця для вигулу собак</label>
           <label><input id="crit_health" type="checkbox" class="crit" data-crit="health" /> Лікарні та аптеки</label>
-          <label><input id="crit_jobs" type="checkbox" class="crit" data-crit="jobs" /> Робочі місця (офіси, супермаркети)</label>
+
+          <!-- Розділив jobs на дві опції: offices та supermarkets -->
+          <label><input id="crit_offices" type="checkbox" class="crit" data-crit="offices" /> Офіси / робочі місця</label>
+          <label><input id="crit_supermarkets" type="checkbox" class="crit" data-crit="supermarkets" /> Супермаркети / магазини</label>
+
           <label><input id="crit_parking" type="checkbox" class="crit" data-crit="parking" /> Парковки, стоянки</label>
           <label><input id="crit_bus" type="checkbox" class="crit" data-crit="bus" /> Автобусні зупинки / станції</label>
         </div>
@@ -199,11 +189,9 @@
       <div class="map-card">
         <div id="map" aria-label="Карта районів Києва"></div>
 
-        <!-- STATIC TOGGLE placed in right-top of map-card -->
+        <!-- STATIC TOGGLE (зменшений) -->
         <div id="markerToggle" class="map-toggle on" title="Показ/сховати всі маркери">
           <div class="knob"></div>
-          <!-- optional label: -->
-          <!-- <div class="label">Маркери</div> -->
         </div>
       </div>
 
@@ -220,7 +208,7 @@
       </div>
     </section>
 
-    <!-- RIGHT: LIST OF DISTRICTS -->
+    <!-- RIGHT -->
     <aside class="panel" id="rightPanel">
       <h3>Райони (в порядку релевантності)</h3>
       <div id="districtList"></div>
@@ -251,12 +239,10 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // CONFIG: same as before
   const defaultDistrictsPath = 'assets/kyiv_districts.geojson';
   const defaultPointsPathLocal = 'assets/points.geojson';
   const remotePointsURL = 'https://raw.githubusercontent.com/Sad-Say/beton/2c3f4fc3b908862a24d16e991dbba78d6628f33a/points.geojson';
 
-  // MAP init
   const map = L.map('map',{preferCanvas:true}).setView([50.45,30.52], 11);
   const basePositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{ attribution:'&copy; OSM & CartoDB', maxZoom:19 });
   const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap contributors', maxZoom:19 });
@@ -264,7 +250,6 @@ document.addEventListener('DOMContentLoaded', () => {
   L.control.layers({ "Positron": basePositron, "OSM": baseOSM }, {}, {collapsed:false}).addTo(map);
   setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
 
-  // helpers for icons
   function makeLetterIcon(letter, color){
     const svg = encodeURIComponent(
       `<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'>
@@ -276,7 +261,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return L.icon({ iconUrl: 'data:image/svg+xml;utf8,'+svg, iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-28] });
   }
 
-  // same typeMap and detection logic as before (abbreviated here for brevity)
   const typeMap = {
     school: ['S','#1f8ef1'], kindergarten: ['K','#f39c12'], university: ['U','#9b59b6'],
     metro: ['M','#e74c3c'], park: ['P','#2ecc71'], recreation_ground: ['R','#27ae60'],
@@ -313,10 +297,11 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'other';
   }
 
+  // criteria mapping updated: offices + supermarkets separate
   const criteriaToTypes = {
     schools: ['school'], kindergartens: ['kindergarten'], universities: ['university'],
     metro: ['metro'], parks: ['park','recreation_ground'], dogparks: ['dog_park'],
-    health: ['hospital','clinic','pharmacy'], jobs: ['office','supermarket','shop'],
+    health: ['hospital','clinic','pharmacy'], offices: ['office'], supermarkets: ['supermarket','shop'],
     parking: ['parking'], bus: ['bus_stop']
   };
 
@@ -446,7 +431,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${(stats.school||0)}</td>
         <td>${(stats.kindergarten||0)}</td>
         <td>${(stats.metro||0)}</td>
-        <td>${(stats.office||0)+(stats.supermarket||0)+(stats.job||0)}</td>
+        <td>${(stats.office||0)+(stats.supermarket||0)}</td>
         <td>${(props.price_avg||'—')}</td>`;
       tbody.appendChild(tr);
     });
@@ -520,7 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   mainLoad();
 
-  // district file input only
+  // district input
   document.getElementById('btnLoadDistrict').addEventListener('click', async ()=>{
     const f = document.getElementById('fileDistricts').files[0];
     if (!f){ alert('Оберіть файл з районами (GeoJSON)'); return; }
@@ -530,10 +515,9 @@ document.addEventListener('DOMContentLoaded', () => {
     catch(e){ alert('Некоректний GeoJSON районів'); console.error(e); document.getElementById('fileStatus').textContent = 'Помилка при читанні файлу районів.'; }
   });
 
-  // filters -> update marker visibility on change
+  // filters
   document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> updateMarkersVisibility()));
 
-  // apply/reset
   function computeComfortAndRefresh(){
     if (!state.districtsGeo) return;
     state.districtsGeo.features.forEach(f=>{
@@ -561,26 +545,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('resetFilters').addEventListener('click', ()=>{ document.querySelectorAll('.crit').forEach(cb=>cb.checked=false); document.getElementById('filter_price').value=''; document.getElementById('w_transport').value=30; document.getElementById('w_infra').value=30; document.getElementById('w_safety').value=20; document.getElementById('w_noise').value=20; computeComfortAndRefresh(); updateMarkersVisibility(); });
   document.getElementById('price_reset').addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
 
-  // NEW: static toggle logic (right-top of map)
+  // toggle logic (small static switch)
   const toggle = document.getElementById('markerToggle');
-  // initial state reflect state.markersEnabled
-  function setToggleVisual(on){
-    if (on){ toggle.classList.add('on'); toggle.classList.remove('off'); }
-    else { toggle.classList.remove('on'); toggle.classList.add('off'); }
-  }
+  function setToggleVisual(on){ if (on){ toggle.classList.add('on'); toggle.classList.remove('off'); } else { toggle.classList.remove('on'); toggle.classList.add('off'); } }
   setToggleVisual(state.markersEnabled);
-  toggle.addEventListener('click', ()=>{
-    state.markersEnabled = !state.markersEnabled;
-    setToggleVisual(state.markersEnabled);
-    updateMarkersVisibility();
-  });
+  toggle.addEventListener('click', ()=>{ state.markersEnabled = !state.markersEnabled; setToggleVisual(state.markersEnabled); updateMarkersVisibility(); });
 
-  // util shade
   function shadeColor(color, percent){
     try { const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent; const R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF; const newR=Math.round((t-R)*p/100)+R; const newG=Math.round((t-G)*p/100)+G; const newB=Math.round((t-B)*p/100)+B; return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1); } catch(e){ return color; }
   }
 
-  // debug expose
   window._BETON = Object.assign(window._BETON||{}, { state, updateMarkersVisibility, computeDistrictStats, buildTypeLayers });
 
   document.getElementById('year').textContent = new Date().getFullYear();
