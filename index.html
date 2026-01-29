@@ -71,7 +71,7 @@
 <main class="container">
   <div class="layout">
 
-    <!-- LEFT: FILTERS & file load -->
+    <!-- LEFT: FILTERS & district file load -->
     <aside class="sidebar" id="filters">
       <h3>Фільтри та файли</h3>
 
@@ -121,18 +121,16 @@
 
       <hr style="margin:12px 0" />
 
-      <h3 style="margin-bottom:8px">Завантажити GeoJSON</h3>
+      <h3 style="margin-bottom:8px">Завантажити GeoJSON районів</h3>
       <div class="file-input">
         <label class="small">districts GeoJSON (ADM2) — файл: <code>assets/kyiv_districts.geojson</code></label>
         <input id="fileDistricts" type="file" accept=".geojson,.json" />
-        <label class="small">points GeoJSON — файл: <code>assets/points.geojson</code></label>
-        <input id="filePoints" type="file" accept=".geojson,.json" />
-        <button class="btn" id="btnLoadFiles" type="button">Load files</button>
-        <div class="status" id="fileStatus">Можна також покласти файли у папку assets/ — або натисни Load files.</div>
+        <button class="btn" id="btnLoadDistrict" type="button">Load districts</button>
+        <div class="status" id="fileStatus">Файл точок завантажується автоматично з <code>assets/points.geojson</code>. Щоб додати/оновити його — закинь файл у папку <code>assets/</code> в репозиторій (інструкція нижче).</div>
       </div>
 
       <hr style="margin:12px 0" />
-      <div class="small">Порада: краще за все покласти точні GeoJSON з geoBoundaries (ADM2) та points з Overpass (я можу згенерувати — скажи "зроби файли").</div>
+      <div class="small">Порада: краще за все покласти точні GeoJSON з geoBoundaries (ADM2) та points (Overpass) у папку <code>assets/</code>.</div>
     </aside>
 
     <!-- CENTER: MAP -->
@@ -188,25 +186,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- Config ----------
   const defaultDistrictsPath = 'assets/kyiv_districts.geojson';
   const defaultPointsPath = 'assets/points.geojson';
-  // If you want the page to try remote geoBoundaries automatically, put URL here:
-  // const remoteDistrictsURL = 'https://raw.githubusercontent.com/wmgeolab/geoBoundaries....../geoBoundaries-UKR-ADM2.geojson';
-  const remoteDistrictsURL = null; // set if you have a working raw URL
 
   // ---------- Map init ----------
   const map = L.map('map',{preferCanvas:true}).setView([50.45,30.52], 11);
-
-  // base maps
   const basePositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM &amp; CartoDB', maxZoom:19 });
   const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom:19 });
-  const baseEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri', maxZoom:19 });
-
   basePositron.addTo(map);
-  const baseMaps = { "Positron (light)": basePositron, "OSM Standard": baseOSM, "Esri Satellite": baseEsri };
-
-  // overlay placeholders (populated later)
-  const overlayMaps = {};
-  L.control.layers(baseMaps, overlayMaps, {collapsed:false}).addTo(map);
-
+  L.control.layers({ "Positron": basePositron, "OSM": baseOSM }, {}, {collapsed:false}).addTo(map);
   setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
 
   // ---------- helpers ----------
@@ -214,47 +200,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const svg = encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"><circle cx="12" cy="10" r="7" fill="${color}"/><text x="12" y="14" font-size="10" fill="#fff" text-anchor="middle">${label}</text></svg>`);
     return L.icon({iconUrl:'data:image/svg+xml;utf8,'+svg, iconSize:[28,28], iconAnchor:[14,28], popupAnchor:[0,-26]});
   }
-  const icons = { school: svgIcon('#1f8ef1','S'), kindergarten: svgIcon('#f39c12','K'), university: svgIcon('#9b59b6','U'), metro: svgIcon('#e74c3c','M'), park: svgIcon('#2ecc71','P'), job: svgIcon('#34495e','J'), other: svgIcon('#777','?') };
+  const icons = { school: svgIcon('#1f8ef1','S'), kindergarten: svgIcon('#f39c12','K'), university: svgIcon('#9b59b6','U'), metro: svgIcon('#e74c3c','M'), park: svgIcon('#2ecc71','P'), office: svgIcon('#34495e','W'), supermarket: svgIcon('#a65','#S'), other: svgIcon('#777','?') };
 
-  // global store
-  const state = {
-    districtsGeo: null, pointsGeo: null,
-    districtLayers: {}, typeLayers: {}, districtStats: {}, districtPrices: {}
+  // mapping from criteria to point types in points.geojson
+  const criteriaToTypes = {
+    schools: ['school'],
+    kindergartens: ['kindergarten'],
+    universities: ['university'],
+    metro: ['metro','station','subway','railway_station'],
+    parks: ['park','recreation_ground'],
+    jobs: ['office','supermarket','shop']
   };
 
+  // global store
+  const state = { districtsGeo: null, pointsGeo: null, districtLayers: {}, typeLayers: {}, districtStats: {}, districtPrices: {} };
+
   // ---------- load utilities ----------
-  async function tryFetchJSON(path){
-    try {
-      const res = await fetch(path);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return await res.json();
-    } catch(e){
-      return null;
-    }
-  }
+  async function tryFetchJSON(path){ try { const res = await fetch(path); if(!res.ok) throw new Error('HTTP '+res.status); return await res.json(); } catch(e){ return null; } }
+  async function loadDistricts(){ return await tryFetchJSON(defaultDistrictsPath); }
+  async function loadPoints(){ return await tryFetchJSON(defaultPointsPath); }
 
-  // Load districts (try local -> remote if set)
-  async function loadDistricts(){
-    let geo = await tryFetchJSON(defaultDistrictsPath);
-    if (!geo && remoteDistrictsURL) geo = await tryFetchJSON(remoteDistrictsURL);
-    return geo;
-  }
-
-  // Load points (local only recommended)
-  async function loadPoints(){
-    const geo = await tryFetchJSON(defaultPointsPath);
-    return geo;
-  }
-
-  // ---------- drawing functions ----------
-  function clearDistrictLayers(){
-    Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} });
-    state.districtLayers = {};
-  }
-  function clearTypeLayers(){
-    Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} });
-    state.typeLayers = {};
-  }
+  // ---------- drawing ----------
+  function clearDistrictLayers(){ Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} }); state.districtLayers={}; }
+  function clearTypeLayers(){ Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} }); state.typeLayers={}; }
 
   function drawDistricts(geo){
     clearDistrictLayers();
@@ -263,92 +231,79 @@ document.addEventListener('DOMContentLoaded', () => {
       style: f => ({color:'#666', weight:1, fillColor:'#f7f9f8', fillOpacity:0.45}),
       onEachFeature: (feature, layer) => {
         const props = feature.properties || {};
-        const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.NAME_1 || props.ADM2_EN || props.local_name) + '';
+        const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
         const displayName = props.name || props.NAME || props.ADM2_EN || props.local_name || id;
-        // store
         state.districtLayers[id] = layer;
         layer.bindTooltip(`<strong>${displayName}</strong><br/>Ціна: ${ (state.districtPrices[id] ? Number(state.districtPrices[id]).toLocaleString() + ' грн/м²' : '—') }`, {sticky:true});
         layer.on('click', ()=> {
           map.fitBounds(layer.getBounds(), {maxZoom:13});
           const stats = state.districtStats[id] || {};
-          const cont = `<strong>${displayName}</strong><br/>Комфорт: ${ (props.comfort || '—') }/10<br/>
-            <small>Школи: ${stats.school||0}, Садки: ${stats.kindergarten||0}, Метро: ${stats.metro||0}</small><br/>
-            <a href="districts/${id}.html" target="_blank">Детальніше →</a>`;
+          const cont = `<strong>${displayName}</strong><br/>Комфорт: ${ (props.comfort || '—') }/10<br/><small>Школи: ${stats.school||0}, Садки: ${stats.kindergarten||0}, Метро: ${stats.metro||0}</small><br/><a href="districts/${id}.html" target="_blank">Детальніше →</a>`;
           L.popup({maxWidth:320}).setLatLng(layer.getBounds().getCenter()).setContent(cont).openOn(map);
         });
       }
     }).addTo(map);
-    // zoom to bounds
     try { map.fitBounds(geoLayer.getBounds().pad(0.12)); } catch(e){}
   }
 
+  // build layers for each detected type, but DO NOT add to map automatically - visibility controlled by criteria
   function buildTypeLayersAndMarkers(pointsGeo){
     clearTypeLayers();
     if (!pointsGeo || !pointsGeo.features) return;
-    // determine types
-    const typesSet = new Set();
     pointsGeo.features.forEach(f=>{
-      const t = ((f.properties && (f.properties.type || f.properties.type_tag || f.properties.amenity)) || 'other').toString().toLowerCase();
-      typesSet.add(t);
-      if (!state.typeLayers[t]) {
-        state.typeLayers[t] = L.layerGroup();
-        // add to overlay control
-        L.control.layers(null, {[t]: state.typeLayers[t]}, {collapsed:false}).addTo(map);
-      }
+      const rawType = ((f.properties && (f.properties.type || f.properties.type_tag || f.properties.amenity || f.properties.shop || f.properties.office)) || 'other').toString().toLowerCase();
+      const t = rawType.replace(/\s+/g,'_');
+      if (!state.typeLayers[t]) state.typeLayers[t] = L.layerGroup();
       const coords = (f.geometry && f.geometry.coordinates) || [];
       if (!coords || coords.length < 2) return;
       const lng = coords[0], lat = coords[1];
       const icon = icons[t] || icons.other;
       const name = (f.properties && (f.properties.name || f.properties.display_name || f.properties.NAME)) || t;
-      const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${name}</b><br/><small>${t}</small>`);
+      const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${name}</b><br/><small>${rawType}</small>`);
       state.typeLayers[t].addLayer(m);
     });
-
-    // create checkbox list for user to toggle types, in filters area
-    const container = document.createElement('div'); container.style.marginTop='8px';
-    container.innerHTML = '<strong>Показати обʼєкти на карті</strong>';
-    const list = document.createElement('div'); list.style.marginTop='6px';
-    typesSet.forEach(t=>{
-      const id = 'showtype_'+t;
-      const wrap = document.createElement('label'); wrap.style.display='block'; wrap.style.marginTop='6px';
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=true; cb.dataset.type=t; cb.id = id; cb.className='show-type';
-      cb.addEventListener('change', (e)=>{
-        if (e.target.checked) state.typeLayers[t] && state.typeLayers[t].addTo(map);
-        else state.typeLayers[t] && map.removeLayer(state.typeLayers[t]);
-      });
-      wrap.appendChild(cb);
-      const txt = document.createTextNode(' ' + t);
-      wrap.appendChild(txt);
-      list.appendChild(wrap);
-      // add to map by default
-      state.typeLayers[t].addTo(map);
-    });
-    container.appendChild(list);
-    // append after criteria list (replace if exists)
-    const criteriaList = document.getElementById('criteriaList');
-    if (criteriaList) {
-      // remove old auto types block if exists
-      const old = document.getElementById('autoTypesBlock');
-      if (old) old.remove();
-      const block = document.createElement('div'); block.id='autoTypesBlock'; block.style.marginTop='10px';
-      block.appendChild(container);
-      criteriaList.parentNode.insertBefore(block, criteriaList.nextSibling);
-    }
+    // After building, set initial visibility according to current criteria
+    updateMarkersVisibility();
   }
 
-  // ---------- compute district stats with turf ----------
+  // show/hide markers depending on checked criteria (maps criteria -> types)
+  function updateMarkersVisibility(){
+    const active = getActiveCriteriaSet();
+    // compute allowed types set
+    const allowed = new Set();
+    active.forEach(cr=>{
+      const types = criteriaToTypes[cr] || [];
+      types.forEach(tt => allowed.add(tt.toString().toLowerCase()));
+    });
+    // show only layers whose type is in allowed; else hide
+    Object.keys(state.typeLayers).forEach(t=>{
+      // match t against allowed types: t can be 'school', 'amenity_school', etc. Use contains.
+      const short = t.toLowerCase();
+      let show = false;
+      for (const a of allowed) {
+        if (short.indexOf(a) !== -1 || a.indexOf(short) !== -1) { show = true; break; }
+      }
+      // if allowed is empty -> hide all markers (user hasn't chosen criteria)
+      if (allowed.size === 0) show = false;
+      if (show) {
+        if (!map.hasLayer(state.typeLayers[t])) state.typeLayers[t].addTo(map);
+      } else {
+        if (map.hasLayer(state.typeLayers[t])) map.removeLayer(state.typeLayers[t]);
+      }
+    });
+  }
+
+  // ---------- compute district stats ----------
   function computeDistrictStats(pointsGeo, districtsGeo){
     state.districtStats = {};
     if (!pointsGeo || !districtsGeo) return;
     const districts = districtsGeo.features;
     const points = pointsGeo.features;
-    // prepare district ids and props
     districts.forEach(d=>{
       const props = d.properties || {};
       const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
       state.districtStats[id] = state.districtStats[id] || { total:0 };
     });
-    // for each point, find which district polygon contains it
     points.forEach(p=>{
       const pt = turf.point(p.geometry.coordinates);
       for (const d of districts){
@@ -357,24 +312,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!id) continue;
         try {
           if (turf.booleanPointInPolygon(pt, d)){
-            const t = ((p.properties && (p.properties.type || p.properties.type_tag || p.properties.amenity)) || 'other').toString().toLowerCase();
+            const t = ((p.properties && (p.properties.type || p.properties.type_tag || p.properties.amenity || p.properties.shop || p.properties.office)) || 'other').toString().toLowerCase();
             state.districtStats[id] = state.districtStats[id] || {};
             state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
             state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
-            break; // assume a point in one district only
+            break;
           }
         } catch(e){
-          // ignore geometry errors
+          // skip
         }
       }
     });
   }
 
-  // ---------- render UI: table, list, top3 ----------
+  // ---------- render UI ----------
   function renderStatsTable(districtsGeo){
-    const tbody = document.querySelector('#statsTable tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+    const tbody = document.querySelector('#statsTable tbody'); if(!tbody) return; tbody.innerHTML = '';
     const features = (districtsGeo && districtsGeo.features) || [];
     features.forEach(f=>{
       const props = f.properties || {};
@@ -397,28 +350,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('districtList'); if(!container) return;
     container.innerHTML = '';
     const features = (districtsGeo && districtsGeo.features) || [];
-    // compute comfort if not present based on existing computeComfortForAll logic (simple neight)
     const arr = features.map(f=>{
       const props = f.properties || {};
       const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
       const d = {
         id, name: props.name || props.NAME || props.ADM2_EN || id,
-        population: props.population || 0,
-        price_avg: state.districtPrices[id] || props.price_avg || 0,
+        population: props.population || 0, price_avg: state.districtPrices[id] || props.price_avg || 0,
         schools: (state.districtStats[id] && state.districtStats[id].school) || 0,
         kindergartens: (state.districtStats[id] && state.districtStats[id].kindergarten) || 0,
         metro: (state.districtStats[id] && state.districtStats[id].metro) || 0,
         jobs: (state.districtStats[id] && (state.districtStats[id].office || state.districtStats[id].job)) || 0
       };
-      // a simple heuristic comfort
-      const comfort = Math.round(
-        Math.min(10, ( (d.metro*1.8) + (d.schools*0.12) + (d.kindergartens*0.08) + (d.jobs/5000) ) / 2)
-      );
+      const comfort = Math.round(Math.min(10, ( (d.metro*1.8) + (d.schools*0.12) + (d.kindergartens*0.08) + (d.jobs/5000) ) / 2));
       d.comfort = Math.max(1, Math.min(10, comfort));
       return d;
     });
     const sorted = arr.sort((a,b)=>b.comfort - a.comfort);
-    // top3
     renderTop3(sorted.slice(0,3));
     sorted.forEach(d=>{
       const el = document.createElement('div'); el.className='district-row';
@@ -435,8 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderTop3(sortedTop){
-    const container = document.getElementById('top3List'); if(!container) return;
-    container.innerHTML = '';
+    const container = document.getElementById('top3List'); if(!container) return; container.innerHTML='';
     sortedTop.forEach((d,i)=>{
       const el = document.createElement('div'); el.className='top3-item';
       el.innerHTML = `<div><strong>${i+1}. ${d.name}</strong><div class="small">Комфорт ${d.comfort}/10 · ${ (d.price_avg||0).toLocaleString() } грн/м²</div></div>
@@ -447,11 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------- interactions ----------
-  function focusDistrict(id){
-    const layer = state.districtLayers[id];
-    if (!layer) return;
-    map.fitBounds(layer.getBounds(), {maxZoom:13});
-  }
+  function focusDistrict(id){ const layer = state.districtLayers[id]; if (!layer) return; map.fitBounds(layer.getBounds(), {maxZoom:13}); }
 
   function showDistrictDetail(id){
     const dLayer = state.districtLayers[id];
@@ -460,94 +402,58 @@ document.addEventListener('DOMContentLoaded', () => {
     const stats = state.districtStats[id] || {};
     if (dLayer) {
       const center = dLayer.getBounds().getCenter();
-      L.popup({maxWidth:300})
-        .setLatLng(center)
+      L.popup({maxWidth:300}).setLatLng(center)
         .setContent(`<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html">Детальніше →</a>`)
         .openOn(map);
     }
   }
 
-  function openDistrictPage(id){
-    if (!id) return;
-    window.open(`districts/${id}.html`, '_blank');
-  }
-
-  // expose global funcs for onclicks
+  function openDistrictPage(id){ if (!id) return; window.open(`districts/${id}.html`, '_blank'); }
   window.openDistrictPage = openDistrictPage;
-  window._BETON = { map, state, focusDistrict, showDistrictDetail };
 
-  // ---------- main load flow ----------
+  // ---------- main load ----------
   async function mainLoad(){
-    document.getElementById('fileStatus').textContent = 'Завантаження файлів (перевірка assets/)...';
+    document.getElementById('fileStatus').textContent = 'Перевірка assets/...';
     const [districtsGeo, pointsGeo] = await Promise.all([loadDistricts(), loadPoints()]);
-    if (!districtsGeo) {
-      document.getElementById('fileStatus').textContent = 'Не знайдено assets/kyiv_districts.geojson. Завантажте файл вручну або вкажіть remoteDistrictsURL в коді.';
+    if (!districtsGeo){
+      document.getElementById('fileStatus').textContent = 'Не знайдено assets/kyiv_districts.geojson. Натисни Load districts або поклади файл у папку assets/.';
     } else {
-      state.districtsGeo = districtsGeo;
-      drawDistricts(districtsGeo);
+      state.districtsGeo = districtsGeo; drawDistricts(districtsGeo);
     }
-    if (!pointsGeo) {
-      document.getElementById('fileStatus').textContent += ' Не знайдено assets/points.geojson.';
+    if (!pointsGeo){
+      document.getElementById('fileStatus').textContent += ' Не знайдено assets/points.geojson — додай файл у папку assets/ (інструкція нижче).';
     } else {
-      state.pointsGeo = pointsGeo;
-      buildTypeLayersAndMarkers(pointsGeo);
+      state.pointsGeo = pointsGeo; buildTypeLayersAndMarkers(pointsGeo);
     }
     if (state.districtsGeo && state.pointsGeo){
       document.getElementById('fileStatus').textContent = 'Файли завантажені. Обчислюю статистику...';
       computeDistrictStats(state.pointsGeo, state.districtsGeo);
       renderStatsTable(state.districtsGeo);
       renderDistrictListSorted(state.districtsGeo);
-      document.getElementById('fileStatus').textContent = 'Готово — можна фільтрувати та переглядати райони.';
+      document.getElementById('fileStatus').textContent = 'Готово — фільтруй критерії, щоб показувати маркери відповідних типів.';
     }
   }
-
   mainLoad();
 
-  // ---------- file inputs (local load) ----------
-  document.getElementById('btnLoadFiles').addEventListener('click', async ()=>{
+  // ---------- district file input (only districts) ----------
+  document.getElementById('btnLoadDistrict').addEventListener('click', async ()=>{
     const fD = document.getElementById('fileDistricts').files[0];
-    const fP = document.getElementById('filePoints').files[0];
-    if (!fD && !fP) { alert('Оберіть файл(и) для завантаження'); return; }
-    document.getElementById('fileStatus').textContent = 'Завантажую файли з локальної машини...';
-    if (fD) {
-      const txt = await fD.text();
-      try { state.districtsGeo = JSON.parse(txt); drawDistricts(state.districtsGeo); }
-      catch(e){ alert('Некоректний GeoJSON для районів'); console.error(e); }
-    }
-    if (fP) {
-      const txt = await fP.text();
-      try { state.pointsGeo = JSON.parse(txt); buildTypeLayersAndMarkers(state.pointsGeo); }
-      catch(e){ alert('Некоректний GeoJSON для точок'); console.error(e); }
-    }
-    if (state.districtsGeo && state.pointsGeo){
-      computeDistrictStats(state.pointsGeo, state.districtsGeo);
-      renderStatsTable(state.districtsGeo);
-      renderDistrictListSorted(state.districtsGeo);
-      document.getElementById('fileStatus').textContent = 'Файли завантажено і оброблено.';
-    } else {
-      document.getElementById('fileStatus').textContent = 'Файли частково завантажені; перевірте консоль на помилки.';
-    }
+    if (!fD) { alert('Оберіть файл з районами (GeoJSON)'); return; }
+    document.getElementById('fileStatus').textContent = 'Завантажую райони з локального файлу...';
+    const txt = await fD.text();
+    try { state.districtsGeo = JSON.parse(txt); drawDistricts(state.districtsGeo); computeDistrictStats(state.pointsGeo, state.districtsGeo); renderStatsTable(state.districtsGeo); renderDistrictListSorted(state.districtsGeo); document.getElementById('fileStatus').textContent = 'Райони завантажені.'; }
+    catch(e){ alert('Некоректний GeoJSON для районів'); console.error(e); document.getElementById('fileStatus').textContent = 'Помилка при читанні файлу районів.'; }
   });
 
-  // ---------- filters and UI ----------
-  function getActiveCriteriaSet(){
-    const set = new Set();
-    document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
-    return set;
-  }
-  function getWeightsFromUI(){
-    return {
-      transport: parseInt(document.getElementById('w_transport').value,10) || 0,
-      infra: parseInt(document.getElementById('w_infra').value,10) || 0,
-      safety: parseInt(document.getElementById('w_safety').value,10) || 0,
-      noise: parseInt(document.getElementById('w_noise').value,10) || 0
-    };
-  }
+  // ---------- filters ----------
+  function getActiveCriteriaSet(){ const set = new Set(); document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); }); return set; }
+  function getWeightsFromUI(){ return { transport: parseInt(document.getElementById('w_transport').value,10) || 0, infra: parseInt(document.getElementById('w_infra').value,10) || 0, safety: parseInt(document.getElementById('w_safety').value,10) || 0, noise: parseInt(document.getElementById('w_noise').value,10) || 0 }; }
+
+  // when criteria toggles -> update markers visibility immediately
+  document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> { updateMarkersVisibility(); }));
 
   function computeComfortForAll_UI(){
-    // recompute simple comfort heuristic per district using state.districtStats
-    const districtsGeo = state.districtsGeo;
-    if (!districtsGeo) return;
+    const districtsGeo = state.districtsGeo; if (!districtsGeo) return;
     districtsGeo.features.forEach(f => {
       const props = f.properties || {};
       const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
@@ -569,7 +475,8 @@ document.addEventListener('DOMContentLoaded', () => {
     computeComfortForAll_UI();
     renderDistrictListSorted(state.districtsGeo);
     renderStatsTable(state.districtsGeo);
-    // also recolor polygons by comfort
+    updateMarkersVisibility();
+    // recolor polygons
     if (state.districtsGeo){
       state.districtsGeo.features.forEach(f=>{
         const props = f.properties||{};
@@ -592,11 +499,12 @@ document.addEventListener('DOMContentLoaded', () => {
     computeComfortForAll_UI();
     renderDistrictListSorted(state.districtsGeo);
     renderStatsTable(state.districtsGeo);
+    updateMarkersVisibility();
   });
 
   document.getElementById('price_reset').addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
 
-  // ---------- util: shade color ----------
+  // ---------- util ----------
   function shadeColor(color, percent) {
     try {
       const f=parseInt(color.slice(1),16),t=percent<0?0:255,p=percent<0?percent*-1:percent;
@@ -608,11 +516,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(e){ return color; }
   }
 
-  // ---------- expose debug ----------
-  window._BETON = Object.assign(window._BETON || {}, { state, computeDistrictStats, renderStatsTable, renderDistrictListSorted });
+  // expose debug
+  window._BETON = Object.assign(window._BETON || {}, { state, updateMarkersVisibility, computeDistrictStats });
 
   document.getElementById('year').textContent = new Date().getFullYear();
-}); // DOMContentLoaded
+});
 </script>
 </body>
 </html>
