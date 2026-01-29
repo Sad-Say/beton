@@ -24,7 +24,9 @@
   .brand{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}
   .brand h1{font-size:20px;margin:0}
   .brand p{margin:0;opacity:0.95;font-size:14px}
-  main.container{max-width:1200px;margin:18px auto;padding:12px;display:block}
+  /* Збільшили основну ширину контейнера, щоб central column міг бути ширшим */
+  main.container{max-width:1500px;margin:18px auto;padding:12px;display:block}
+
   /* layout: left sidebar | center map | right panel */
   .layout{display:grid;grid-template-columns:300px 1fr 380px;gap:14px;align-items:start}
   @media(min-width:1100px){
@@ -35,6 +37,7 @@
     .layout{grid-template-columns:1fr}
     .top3-box{position:static;margin-top:12px}
   }
+
   .sidebar{background:var(--panel-bg);border-radius:8px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
   .sidebar h3{margin:4px 0 10px;color:var(--accent)}
   .filter-group{margin-bottom:12px}
@@ -46,8 +49,10 @@
   input[type="range"]{width:100%}
   .btn{display:inline-block;padding:9px 12px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
   .btn.secondary{background:#e7eef0;color:#0b6b4f;border:1px solid #d6e6e2}
-  .map-card{border-radius:8px;overflow:hidden;border:1px solid #e6eaee;background:#fff;box-shadow:0 8px 26px rgba(11,107,79,0.06)}
+
+  .map-card{position:relative;border-radius:8px;overflow:hidden;border:1px solid #e6eaee;background:#fff;box-shadow:0 8px 26px rgba(11,107,79,0.06)}
   #map{width:100%;height:640px;display:block}
+
   .panel{background:var(--panel-bg);border-radius:8px;padding:12px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
   .panel h3{margin:6px 0;color:var(--accent)}
   .district-row{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:6px;border:1px solid #f0f0f0;margin-bottom:8px;background:#fff;cursor:pointer}
@@ -67,20 +72,49 @@
   .status{font-size:13px;color:var(--muted);margin-top:8px}
   footer{max-width:1200px;margin:18px auto;padding:12px;color:#666;font-size:13px;text-align:center}
 
-  /* draggable logo button */
-  #markerToggle {
-    position: fixed;
-    left: 18px;
-    bottom: 18px;
+  /* --- Toggle switch (static box in top-right of map) --- */
+  /* container (rounded rectangle) */
+  .map-toggle {
+    position: absolute;
+    top: 12px;
+    right: 12px;
     z-index: 1200;
-    width:54px;height:54px;border-radius:50%;
-    background:linear-gradient(135deg,#0b6b4f,#12b886);
-    box-shadow:0 8px 20px rgba(0,0,0,0.18);
-    display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;cursor:pointer;
-    user-select:none;
+    width: 92px;
+    height: 42px;
+    border-radius: 22px;
+    background: #e6e6e6; /* OFF background */
+    display: flex;
+    align-items: center;
+    padding: 5px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    cursor: pointer;
+    transition: background-color .25s ease, box-shadow .2s ease;
+    border: 1px solid rgba(0,0,0,0.06);
   }
-  #markerToggle.off { opacity:0.55; filter:grayscale(40%); }
-  #markerToggle small { font-size:11px; display:block; margin-top:2px; opacity:0.9; }
+  .map-toggle.on { background: #eaffec; } /* gentle light green when ON */
+  .map-toggle.off { background: #f0f0f0; } /* grey when OFF */
+
+  /* knob */
+  .map-toggle .knob {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #9be6a3; /* default ON color */
+    box-shadow: 0 6px 14px rgba(0,0,0,0.18);
+    transition: transform .25s cubic-bezier(.2,.9,.2,1), background-color .25s ease;
+    transform: translateX(0); /* left pos */
+  }
+  /* offset to right when on */
+  .map-toggle.on .knob { transform: translateX(46px); background: #9be6a3; } /* slide right, green */
+  .map-toggle.off .knob { transform: translateX(0); background: #bdbdbd; } /* left pos, grey */
+  /* optional small label text */
+  .map-toggle .label {
+    font-size:11px;
+    color:#334;
+    margin-left:8px;
+    user-select:none;
+    opacity:0.9;
+  }
 </style>
 </head>
 <body>
@@ -120,7 +154,6 @@
       <div class="filter-group">
         <label>Інфраструктура (відмітьте потрібне)</label>
         <div class="checkbox-list" id="criteriaList">
-          <!-- розширений набір критеріїв; кожен вмикає/вимикає пов'язані типи маркерів -->
           <label><input id="crit_schools" type="checkbox" class="crit" data-crit="schools" /> Школи, ліцеї</label>
           <label><input id="crit_kindergartens" type="checkbox" class="crit" data-crit="kindergartens" /> Дитсадки</label>
           <label><input id="crit_universities" type="checkbox" class="crit" data-crit="universities" /> Університети</label>
@@ -165,6 +198,13 @@
     <section>
       <div class="map-card">
         <div id="map" aria-label="Карта районів Києва"></div>
+
+        <!-- STATIC TOGGLE placed in right-top of map-card -->
+        <div id="markerToggle" class="map-toggle on" title="Показ/сховати всі маркери">
+          <div class="knob"></div>
+          <!-- optional label: -->
+          <!-- <div class="label">Маркери</div> -->
+        </div>
       </div>
 
       <div style="margin-top:12px;background:#fff;padding:12px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.04)">
@@ -204,9 +244,6 @@
   </div>
 </div>
 
-<!-- draggable toggle button (logo-like) -->
-<div id="markerToggle" title="Показ/сховати всі маркери">БЕ<br><small>TO</small></div>
-
 <footer>© <span id="year"></span> БЕТОН — демо.</footer>
 
 <!-- Leaflet JS -->
@@ -214,7 +251,7 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // CONFIG: try local first, then raw github (use your commit hash / path)
+  // CONFIG: same as before
   const defaultDistrictsPath = 'assets/kyiv_districts.geojson';
   const defaultPointsPathLocal = 'assets/points.geojson';
   const remotePointsURL = 'https://raw.githubusercontent.com/Sad-Say/beton/2c3f4fc3b908862a24d16e991dbba78d6628f33a/points.geojson';
@@ -227,48 +264,36 @@ document.addEventListener('DOMContentLoaded', () => {
   L.control.layers({ "Positron": basePositron, "OSM": baseOSM }, {}, {collapsed:false}).addTo(map);
   setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
 
-  // helpers: create letter icons colored by type
+  // helpers for icons
   function makeLetterIcon(letter, color){
     const svg = encodeURIComponent(
       `<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'>
         <circle cx='18' cy='14' r='12' fill='${color}' />
         <text x='18' y='18.5' font-size='14' fill='#fff' font-weight='700' text-anchor='middle' alignment-baseline='middle'>${letter}</text>
-        <rect x='14' y='26' width='8' height='8' rx='2' fill='${color}' opacity='0.95' transform='translate(0,0)'/>
+        <rect x='14' y='26' width='8' height='8' rx='2' fill='${color}' opacity='0.95'/>
       </svg>`
     );
     return L.icon({ iconUrl: 'data:image/svg+xml;utf8,'+svg, iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-28] });
   }
 
-  // palette & normalized type -> [letter,color]
+  // same typeMap and detection logic as before (abbreviated here for brevity)
   const typeMap = {
-    school: ['S','#1f8ef1'],
-    kindergarten: ['K','#f39c12'],
-    university: ['U','#9b59b6'],
-    metro: ['M','#e74c3c'],
-    park: ['P','#2ecc71'],
-    recreation_ground: ['R','#27ae60'],
-    hospital: ['H','#c0392b'],
-    clinic: ['H','#c0392b'],
-    pharmacy: ['A','#16a085'],
-    office: ['W','#34495e'],
-    supermarket: ['S','#d35400'],
-    shop: ['S','#d35400'],
-    parking: ['P','#7f8c8d'],
-    bus_stop: ['B','#2c3e50'],
-    dog_park: ['D','#e67e22'],
+    school: ['S','#1f8ef1'], kindergarten: ['K','#f39c12'], university: ['U','#9b59b6'],
+    metro: ['M','#e74c3c'], park: ['P','#2ecc71'], recreation_ground: ['R','#27ae60'],
+    hospital: ['H','#c0392b'], clinic: ['H','#c0392b'], pharmacy: ['A','#16a085'],
+    office: ['W','#34495e'], supermarket: ['S','#d35400'], shop: ['S','#d35400'],
+    parking: ['P','#7f8c8d'], bus_stop: ['B','#2c3e50'], dog_park: ['D','#e67e22'],
     other: ['?','#777']
   };
 
-  // normalize raw point properties into one of keys in typeMap
   function detectTypeFromFeature(f){
     const p = f.properties || {};
-    // common OSM keys
-    const amenity = (p.amenity || '').toString().toLowerCase();
-    const leisure = (p.leisure || '').toString().toLowerCase();
-    const shop = (p.shop || '').toString().toLowerCase();
-    const office = (p.office || '').toString().toLowerCase();
-    const railway = (p.railway || '').toString().toLowerCase();
-    const public_transport = (p.public_transport || '').toString().toLowerCase();
+    const amenity = (p.amenity||'').toString().toLowerCase();
+    const leisure = (p.leisure||'').toString().toLowerCase();
+    const shop = (p.shop||'').toString().toLowerCase();
+    const office = (p.office||'').toString().toLowerCase();
+    const railway = (p.railway||'').toString().toLowerCase();
+    const public_transport = (p.public_transport||'').toString().toLowerCase();
     const type_tag = (p.type || p.type_tag || '').toString().toLowerCase();
 
     if (amenity === 'school') return 'school';
@@ -278,54 +303,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (amenity === 'pharmacy') return 'pharmacy';
     if (amenity === 'parking') return 'parking';
     if (amenity === 'bus_station' || amenity === 'bus_stop') return 'bus_stop';
-    if (shop === 'supermarket' || shop === 'convenience' || shop) {
-      if (shop) return 'supermarket';
-    }
+    if (shop === 'supermarket' || shop === 'convenience' || shop) return 'supermarket';
     if (office) return 'office';
     if (leisure === 'park') return 'park';
     if (leisure === 'recreation_ground') return 'recreation_ground';
     if (leisure === 'dog_park') return 'dog_park';
     if (railway === 'station' || public_transport === 'station' || type_tag.indexOf('station')!==-1) return 'metro';
-    // fallback by type_tag
     if (type_tag && typeMap[type_tag]) return type_tag;
     return 'other';
   }
 
-  // criteria -> list of normalized types (grouping similar ones)
   const criteriaToTypes = {
-    schools: ['school'],
-    kindergartens: ['kindergarten'],
-    universities: ['university'],
-    metro: ['metro'],
-    parks: ['park','recreation_ground'],
-    dogparks: ['dog_park'],
-    health: ['hospital','clinic','pharmacy'],
-    jobs: ['office','supermarket','shop'],
-    parking: ['parking'],
-    bus: ['bus_stop']
+    schools: ['school'], kindergartens: ['kindergarten'], universities: ['university'],
+    metro: ['metro'], parks: ['park','recreation_ground'], dogparks: ['dog_park'],
+    health: ['hospital','clinic','pharmacy'], jobs: ['office','supermarket','shop'],
+    parking: ['parking'], bus: ['bus_stop']
   };
 
-  // state
-  const state = {
-    districtsGeo: null,
-    pointsGeo: null,
-    districtLayers: {},
-    typeLayers: {},   // normalizedType -> LayerGroup
-    districtStats: {},
-    markersEnabled: true
-  };
+  const state = { districtsGeo:null, pointsGeo:null, districtLayers:{}, typeLayers:{}, districtStats:{}, markersEnabled:true };
 
-  // fetch helpers (try local first, then remote)
-  async function tryFetchJSON(path){ try{ const r=await fetch(path); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); } catch(e){ return null; } }
-  async function fetchDistricts(){ return await tryFetchJSON(defaultDistrictsPath); }
-  async function fetchPoints(){ 
-    let g = await tryFetchJSON(defaultPointsPathLocal);
-    if (g) return g;
-    // try remote raw URL
-    return await tryFetchJSON(remotePointsURL);
-  }
+  async function tryFetchJSON(path){ try{ const r=await fetch(path); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }catch(e){ return null; } }
+  async function loadDistricts(){ return await tryFetchJSON(defaultDistrictsPath); }
+  async function loadPoints(){ let g = await tryFetchJSON(defaultPointsPathLocal); if (g) return g; return await tryFetchJSON(remotePointsURL); }
 
-  // draw districts
   function clearDistrictLayers(){ Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} }); state.districtLayers={}; }
   function drawDistricts(geo){
     clearDistrictLayers();
@@ -347,10 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
     }).addTo(map);
-    try{ map.fitBounds(gj.getBounds().pad(0.12)); } catch(e){}
+    try{ map.fitBounds(gj.getBounds().pad(0.12)); }catch(e){}
   }
 
-  // build marker layers grouped by normalized type (do NOT auto-add them to map here)
   function clearTypeLayers(){ Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} }); state.typeLayers={}; }
   function buildTypeLayers(pointsGeo){
     clearTypeLayers();
@@ -368,22 +367,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${metaName||t}</b><br/><small>${t}</small>`);
       state.typeLayers[t].addLayer(m);
     });
-    // after building layers, visibility will be controlled by criteria
     updateMarkersVisibility();
   }
 
-  // compute district statistics: count normalized types per district (turf booleanPointInPolygon)
   function computeDistrictStats(pointsGeo, districtsGeo){
     state.districtStats = {};
     if (!pointsGeo || !districtsGeo) return;
     const districts = districtsGeo.features;
-    // init
     districts.forEach(d=>{
       const props = d.properties || {};
       const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
       state.districtStats[id] = state.districtStats[id] || {};
     });
-    // iterate points and assign to district
     pointsGeo.features.forEach(p=>{
       const pt = turf.point(p.geometry.coordinates);
       for (const d of districts){
@@ -393,8 +388,8 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           if (turf.booleanPointInPolygon(pt, d)){
             const t = detectTypeFromFeature(p);
-            state.districtStats[id][t] = (state.districtStats[id][t]||0)+1;
-            state.districtStats[id].total = (state.districtStats[id].total||0)+1;
+            state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
+            state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
             break;
           }
         } catch(e){}
@@ -402,7 +397,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // determine which type layers should be visible based on checked criteria
   function getActiveCriteriaSet(){
     const set = new Set();
     document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
@@ -410,30 +404,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateMarkersVisibility(){
-    // if global marker toggle is OFF -> hide all
-    if (!state.markersEnabled){
+    if (!state.markersEnabled) {
       Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
       return;
     }
     const active = getActiveCriteriaSet();
-    // compute allowed normalized types
     const allowed = new Set();
     active.forEach(cr=>{
       const types = criteriaToTypes[cr] || [];
-      types.forEach(tt => allowed.add(tt.toLowerCase()));
+      types.forEach(tt=>allowed.add(tt.toLowerCase()));
     });
-    // if no criteria selected -> hide all markers
     if (allowed.size === 0){
       Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
       return;
     }
-    // otherwise show only layers that match allowed list
     Object.keys(state.typeLayers).forEach(t=>{
       const layer = state.typeLayers[t];
-      // show if exact match or part of allowed (some types grouped)
       let show = false;
       for (const a of allowed){
-        if (t === a || t.indexOf(a) !== -1 || a.indexOf(t) !== -1) { show = true; break; }
+        if (t === a || t.indexOf(a)!==-1 || a.indexOf(t)!==-1){ show = true; break; }
       }
       if (show){
         if (!map.hasLayer(layer)) layer.addTo(map);
@@ -443,7 +432,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // render tables & lists
   function renderStatsTable(districtsGeo){
     const tbody = document.querySelector('#statsTable tbody'); if(!tbody) return; tbody.innerHTML='';
     const features = (districtsGeo && districtsGeo.features) || [];
@@ -463,23 +451,18 @@ document.addEventListener('DOMContentLoaded', () => {
       tbody.appendChild(tr);
     });
   }
+
   function renderDistrictListSorted(districtsGeo){
     const container = document.getElementById('districtList'); if(!container) return; container.innerHTML='';
     const features = (districtsGeo && districtsGeo.features) || [];
     const arr = features.map(f=>{
       const props = f.properties||{};
       const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name)+'';
-      const d = {
-        id, name: props.name || props.NAME || props.ADM2_EN || id,
-        population: props.population||0,
-        price_avg: props.price_avg || 0,
-        schools: (state.districtStats[id] && state.districtStats[id].school) || 0,
-        kindergartens: (state.districtStats[id] && state.districtStats[id].kindergarten) || 0,
-        metro: (state.districtStats[id] && state.districtStats[id].metro) || 0,
-        jobs: (state.districtStats[id] && (state.districtStats[id].office || 0)) || 0
+      const d = { id, name: props.name||props.NAME||props.ADM2_EN||id, population: props.population||0, price_avg: props.price_avg||0,
+        schools: (state.districtStats[id] && state.districtStats[id].school) || 0, kindergartens: (state.districtStats[id] && state.districtStats[id].kindergarten) || 0,
+        metro: (state.districtStats[id] && state.districtStats[id].metro) || 0, jobs: (state.districtStats[id] && (state.districtStats[id].office||0)) || 0
       };
-      const comfort = Math.round(Math.min(10, ((d.metro*1.8) + (d.schools*0.12) + (d.kindergartens*0.08) + (d.jobs/5000))/2));
-      d.comfort = Math.max(1, Math.min(10, comfort));
+      d.comfort = Math.round(Math.min(10, ((d.metro*1.8)+(d.schools*0.12)+(d.kindergartens*0.08)+(d.jobs/5000))/2));
       return d;
     });
     const sorted = arr.sort((a,b)=>b.comfort - a.comfort);
@@ -497,6 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
       container.appendChild(el);
     });
   }
+
   function renderTop3(sortedTop){
     const container = document.getElementById('top3List'); if(!container) return; container.innerHTML='';
     sortedTop.forEach((d,i)=>{
@@ -508,41 +492,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // interactions
   function focusDistrict(id){ const layer = state.districtLayers[id]; if(!layer) return; map.fitBounds(layer.getBounds(), {maxZoom:13}); }
   function showDistrictDetail(id){
-    const layer = state.districtLayers[id];
-    const props = (layer && layer.feature && layer.feature.properties) || {};
-    const displayName = props.name || props.NAME || id;
-    const stats = state.districtStats[id] || {};
-    if (layer){
-      const center = layer.getBounds().getCenter();
-      L.popup({maxWidth:300}).setLatLng(center).setContent(`<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html">Детальніше →</a>`).openOn(map);
-    }
+    const layer = state.districtLayers[id]; const props = (layer && layer.feature && layer.feature.properties) || {};
+    const displayName = props.name || props.NAME || id; const stats = state.districtStats[id] || {};
+    if (layer){ const center = layer.getBounds().getCenter(); L.popup({maxWidth:300}).setLatLng(center).setContent(`<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html">Детальніше →</a>`).openOn(map); }
   }
-  function openDistrictPage(id){ if (!id) return; window.open(`districts/${id}.html`, '_blank'); }
+  function openDistrictPage(id){ if(!id) return; window.open(`districts/${id}.html`,'_blank'); }
   window.openDistrictPage = openDistrictPage;
 
-  // main load flow
+  // main load
   async function mainLoad(){
-    document.getElementById('fileStatus').textContent = 'Завантаження (перевірка assets/ та GitHub raw)...';
+    document.getElementById('fileStatus').textContent = 'Завантаження (assets/ та GitHub raw)...';
     const [districtsGeo, pointsGeoLocal] = await Promise.all([tryFetchJSON(defaultDistrictsPath), tryFetchJSON(defaultPointsPathLocal)]);
     let pointsGeo = pointsGeoLocal;
-    if (!pointsGeo) {
-      // try remote raw
-      pointsGeo = await tryFetchJSON(remotePointsURL);
-    }
-    if (!districtsGeo){
-      document.getElementById('fileStatus').textContent = 'Не знайдено локального файлу районів (assets/kyiv_districts.geojson). Натисни Load districts.';
-    } else {
-      state.districtsGeo = districtsGeo; drawDistricts(districtsGeo);
-    }
-    if (!pointsGeo){
-      document.getElementById('fileStatus').textContent += ' Не знайдено points.geojson (assets або GitHub raw). Додай файл у репо або в assets/.';
-    } else {
-      state.pointsGeo = pointsGeo;
-      buildTypeLayers(pointsGeo);
-    }
+    if (!pointsGeo) pointsGeo = await tryFetchJSON(remotePointsURL);
+    if (!districtsGeo) { document.getElementById('fileStatus').textContent = 'Не знайдено локального файлу районів (assets/kyiv_districts.geojson). Натисни Load districts.'; }
+    else { state.districtsGeo = districtsGeo; drawDistricts(districtsGeo); }
+    if (!pointsGeo) { document.getElementById('fileStatus').textContent += ' Не знайдено points.geojson (assets або GitHub raw).'; }
+    else { state.pointsGeo = pointsGeo; buildTypeLayers(pointsGeo); }
     if (state.districtsGeo && state.pointsGeo){
       computeDistrictStats(state.pointsGeo, state.districtsGeo);
       renderStatsTable(state.districtsGeo);
@@ -552,7 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   mainLoad();
 
-  // file input for districts only
+  // district file input only
   document.getElementById('btnLoadDistrict').addEventListener('click', async ()=>{
     const f = document.getElementById('fileDistricts').files[0];
     if (!f){ alert('Оберіть файл з районами (GeoJSON)'); return; }
@@ -562,12 +530,11 @@ document.addEventListener('DOMContentLoaded', () => {
     catch(e){ alert('Некоректний GeoJSON районів'); console.error(e); document.getElementById('fileStatus').textContent = 'Помилка при читанні файлу районів.'; }
   });
 
-  // filters: when criteria change -> update markers visibility immediately
-  document.querySelectorAll('.crit').forEach(cb => cb.addEventListener('change', ()=> updateMarkersVisibility()));
+  // filters -> update marker visibility on change
+  document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> updateMarkersVisibility()));
 
-  // Apply / Reset buttons
+  // apply/reset
   function computeComfortAndRefresh(){
-    // recompute comfort heuristics and recolor polygons
     if (!state.districtsGeo) return;
     state.districtsGeo.features.forEach(f=>{
       const props = f.properties || {};
@@ -577,73 +544,47 @@ document.addEventListener('DOMContentLoaded', () => {
       const infraScore = Math.min(10, ((stats.school||0)+(stats.kindergarten||0))*0.2);
       const safetyScore = Math.min(10, ((stats.office||0)||0)/5);
       const noiseScore = 5;
-      const weights = {
-        transport: parseInt(document.getElementById('w_transport').value,10)||0,
-        infra: parseInt(document.getElementById('w_infra').value,10)||0,
-        safety: parseInt(document.getElementById('w_safety').value,10)||0,
-        noise: parseInt(document.getElementById('w_noise').value,10)||0
-      };
-      const totalW = (weights.transport+weights.infra+weights.safety+weights.noise)||1;
+      const weights = { transport: parseInt(document.getElementById('w_transport').value,10)||0, infra: parseInt(document.getElementById('w_infra').value,10)||0, safety: parseInt(document.getElementById('w_safety').value,10)||0, noise: parseInt(document.getElementById('w_noise').value,10)||0 };
+      const totalW = (weights.transport+weights.infra+weights.safety+weights.noise) || 1;
       const raw = (transportScore*weights.transport + infraScore*weights.infra + safetyScore*weights.safety + (10-noiseScore)*weights.noise)/totalW;
       let comfort = Math.round(raw);
       const priceLimit = parseInt(document.getElementById('filter_price').value||0,10) || 0;
       if (priceLimit && props.price_avg && props.price_avg > priceLimit) comfort = Math.max(1, comfort-2);
       props.comfort = Math.max(1, Math.min(10, comfort));
       const layer = state.districtLayers[id];
-      if (layer){
-        const c = props.comfort || 1;
-        const color = c >=9 ? '#005a32' : c>=7 ? '#2ca02c' : c>=5 ? '#ffce73' : c>=3 ? '#ff8c42' : '#c73a00';
-        layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)});
-      }
+      if (layer){ const c = props.comfort || 1; const color = c>=9? '#005a32': c>=7? '#2ca02c': c>=5? '#ffce73': c>=3? '#ff8c42':'#c73a00'; layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)}); }
     });
     renderStatsTable(state.districtsGeo);
     renderDistrictListSorted(state.districtsGeo);
   }
   document.getElementById('applyFilters').addEventListener('click', ()=>{ computeComfortAndRefresh(); updateMarkersVisibility(); });
-  document.getElementById('resetFilters').addEventListener('click', ()=>{
-    document.querySelectorAll('.crit').forEach(cb=>cb.checked=false);
-    document.getElementById('filter_price').value='';
-    document.getElementById('w_transport').value=30;
-    document.getElementById('w_infra').value=30;
-    document.getElementById('w_safety').value=20;
-    document.getElementById('w_noise').value=20;
-    computeComfortAndRefresh();
-    updateMarkersVisibility();
-  });
+  document.getElementById('resetFilters').addEventListener('click', ()=>{ document.querySelectorAll('.crit').forEach(cb=>cb.checked=false); document.getElementById('filter_price').value=''; document.getElementById('w_transport').value=30; document.getElementById('w_infra').value=30; document.getElementById('w_safety').value=20; document.getElementById('w_noise').value=20; computeComfortAndRefresh(); updateMarkersVisibility(); });
   document.getElementById('price_reset').addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
 
-  // draggable toggle button: disables/enables all markers at once
+  // NEW: static toggle logic (right-top of map)
   const toggle = document.getElementById('markerToggle');
-  let drag = false, offset = {x:0,y:0};
-  toggle.addEventListener('mousedown', (e)=>{ drag=true; offset.x = e.clientX - toggle.getBoundingClientRect().left; offset.y = e.clientY - toggle.getBoundingClientRect().top; });
-  window.addEventListener('mousemove', (e)=>{ if(!drag) return; toggle.style.left = (e.clientX - offset.x) + 'px'; toggle.style.top = (e.clientY - offset.y) + 'px'; toggle.style.right = 'auto'; toggle.style.bottom = 'auto'; });
-  window.addEventListener('mouseup', ()=>{ drag=false; });
-  // click: toggle markers enabled
+  // initial state reflect state.markersEnabled
+  function setToggleVisual(on){
+    if (on){ toggle.classList.add('on'); toggle.classList.remove('off'); }
+    else { toggle.classList.remove('on'); toggle.classList.add('off'); }
+  }
+  setToggleVisual(state.markersEnabled);
   toggle.addEventListener('click', ()=>{
-    // small debounce to avoid click on drag: only toggle when not dragging
-    if (drag) return;
     state.markersEnabled = !state.markersEnabled;
-    if (!state.markersEnabled){ toggle.classList.add('off'); } else { toggle.classList.remove('off'); }
+    setToggleVisual(state.markersEnabled);
     updateMarkersVisibility();
   });
 
-  // small util: shade color
+  // util shade
   function shadeColor(color, percent){
-    try {
-      const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent;
-      const R=f>>16, G=f>>8&0x00FF, B=f&0x0000FF;
-      const newR=Math.round((t-R)*p/100)+R;
-      const newG=Math.round((t-G)*p/100)+G;
-      const newB=Math.round((t-B)*p/100)+B;
-      return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1);
-    } catch(e){ return color; }
+    try { const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent; const R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF; const newR=Math.round((t-R)*p/100)+R; const newG=Math.round((t-G)*p/100)+G; const newB=Math.round((t-B)*p/100)+B; return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1); } catch(e){ return color; }
   }
 
-  // expose for debugging
+  // debug expose
   window._BETON = Object.assign(window._BETON||{}, { state, updateMarkersVisibility, computeDistrictStats, buildTypeLayers });
 
   document.getElementById('year').textContent = new Date().getFullYear();
-}); // DOMContentLoaded
+});
 </script>
 </body>
 </html>
