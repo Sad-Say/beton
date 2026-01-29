@@ -5,33 +5,28 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>БЕТОН — Де в Києві найкраще купити житло</title>
 
-<!-- Leaflet CSS (без integrity, бо браузер блокує при невірному значенні) -->
+<!-- Leaflet CSS -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 
+<!-- Turf (для точного point-in-polygon в браузері) -->
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
 <style>
-  /* --- БАЗОВІ СТИЛІ  --- */
   :root{
-    --accent: #0b6b4f;   /* зелено-смарагдовий */
-    --accent-2: #ffcc00; /* жовтий акцент */
+    --accent: #ffcc00;
+    --accent-2: #0b6b4f;
     --muted: #6b7280;
     --panel-bg: #fff;
-    --glass: rgba(255,255,255,0.9);
+    --glass: rgba(255,255,255,0.92);
   }
   html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:#f3f6f8;color:#111}
   header{background:linear-gradient(0deg,var(--accent) 0%, #0a5d47 100%);color:#fff;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
   .brand{max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px}
   .brand h1{font-size:20px;margin:0}
   .brand p{margin:0;opacity:0.95;font-size:14px}
-
   main.container{max-width:1200px;margin:18px auto;padding:12px;display:block}
-
-  /* layout: left sidebar (filters) | center map | right panel (list) */
-  .layout{display:grid;grid-template-columns:280px 1fr 360px;gap:14px;align-items:start}
-  @media(max-width:1100px){
-    .layout{grid-template-columns: 1fr; }
-  }
-
-  /* --- LEFT SIDEBAR (фільтри) --- */
+  .layout{display:grid;grid-template-columns:300px 1fr 380px;gap:14px;align-items:start}
+  @media(max-width:1100px){ .layout{grid-template-columns:1fr} .top3-box{position:static; margin-top:12px} }
   .sidebar{background:var(--panel-bg);border-radius:8px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
   .sidebar h3{margin:4px 0 10px;color:var(--accent)}
   .filter-group{margin-bottom:12px}
@@ -39,18 +34,12 @@
   .checkbox-list{display:flex;flex-direction:column;gap:6px}
   .checkbox-list label{font-size:14px;color:#222}
   .small{font-size:13px;color:var(--muted)}
-
   .range-row{display:flex;gap:8px;align-items:center}
   input[type="range"]{width:100%}
-
   .btn{display:inline-block;padding:9px 12px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
   .btn.secondary{background:#e7eef0;color:#0b6b4f;border:1px solid #d6e6e2}
-
-  /* --- MAP --- */
   .map-card{border-radius:8px;overflow:hidden;border:1px solid #e6eaee;background:#fff;box-shadow:0 8px 26px rgba(11,107,79,0.06)}
-  #map{width:100%;height:640px;display:block} /* важливо - висота карти */
-
-  /* --- RIGHT PANEL (список районів + таблиця) --- */
+  #map{width:100%;height:640px;display:block}
   .panel{background:var(--panel-bg);border-radius:8px;padding:12px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
   .panel h3{margin:6px 0;color:var(--accent)}
   .district-row{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:6px;border:1px solid #f0f0f0;margin-bottom:8px;background:#fff;cursor:pointer}
@@ -59,18 +48,15 @@
   .district-meta{font-size:13px;color:var(--muted)}
   .bar{height:8px;border-radius:6px;background:#eee;overflow:hidden;margin-top:6px}
   .bar .fill{height:100%;background:linear-gradient(90deg,var(--accent) 0%, var(--accent-2) 100%);width:50%}
-
   .stats-table{width:100%;border-collapse:collapse;margin-top:10px}
   .stats-table th, .stats-table td{padding:6px;border-bottom:1px solid #f0f0f0;font-size:13px;text-align:left}
   .stats-table th{background:#fafafa;font-weight:700}
-
-  /* --- FLOATING TOP-3 --- */
-  .top3-box{position:fixed;right:18px;bottom:18px;z-index:999;min-width:220px;background:var(--glass);backdrop-filter:blur(6px);border-radius:10px;padding:10px;border:1px solid rgba(0,0,0,0.06);box-shadow:0 10px 30px rgba(0,0,0,0.08)}
+  .top3-box{position:fixed;right:18px;bottom:18px;z-index:999;min-width:240px;background:var(--glass);backdrop-filter:blur(6px);border-radius:10px;padding:10px;border:1px solid rgba(0,0,0,0.06);box-shadow:0 10px 30px rgba(0,0,0,0.08)}
   .top3-box h4{margin:0 0 6px;font-size:15px;color:#0b6b4f}
   .top3-item{display:flex;justify-content:space-between;align-items:center;padding:6px;border-radius:6px;cursor:pointer}
   .top3-item:hover{background:#fff}
-
-  /* misc */
+  .file-input{display:flex;gap:8px;flex-direction:column}
+  .status{font-size:13px;color:var(--muted);margin-top:8px}
   footer{max-width:1200px;margin:18px auto;padding:12px;color:#666;font-size:13px;text-align:center}
 </style>
 </head>
@@ -85,9 +71,9 @@
 <main class="container">
   <div class="layout">
 
-    <!-- LEFT: FILTERS -->
+    <!-- LEFT: FILTERS & file load -->
     <aside class="sidebar" id="filters">
-      <h3>Фільтри та критерії</h3>
+      <h3>Фільтри та файли</h3>
 
       <div class="filter-group">
         <label for="filter_type">Тип житла</label>
@@ -110,26 +96,22 @@
 
       <div class="filter-group">
         <label>Інфраструктура (відмітьте потрібне)</label>
-        <div class="checkbox-list">
-          <label for="crit_schools"><input id="crit_schools" type="checkbox" class="crit" data-crit="schools" /> Багато шкіл</label>
-          <label for="crit_kindergartens"><input id="crit_kindergartens" type="checkbox" class="crit" data-crit="kindergartens" /> Багато дитсадків</label>
-          <label for="crit_universities"><input id="crit_universities" type="checkbox" class="crit" data-crit="universities" /> Поруч університети</label>
-          <label for="crit_metro"><input id="crit_metro" type="checkbox" class="crit" data-crit="metro" /> Біля метро</label>
-          <label for="crit_parks"><input id="crit_parks" type="checkbox" class="crit" data-crit="parks" /> Парки/зелені зони</label>
-          <label for="crit_jobs"><input id="crit_jobs" type="checkbox" class="crit" data-crit="jobs" /> Багато робочих місць</label>
+        <div class="checkbox-list" id="criteriaList">
+          <label><input id="crit_schools" type="checkbox" class="crit" data-crit="schools" /> Багато шкіл</label>
+          <label><input id="crit_kindergartens" type="checkbox" class="crit" data-crit="kindergartens" /> Багато дитсадків</label>
+          <label><input id="crit_universities" type="checkbox" class="crit" data-crit="universities" /> Поруч університети</label>
+          <label><input id="crit_metro" type="checkbox" class="crit" data-crit="metro" /> Біля метро</label>
+          <label><input id="crit_parks" type="checkbox" class="crit" data-crit="parks" /> Парки/зелені зони</label>
+          <label><input id="crit_jobs" type="checkbox" class="crit" data-crit="jobs" /> Багато робочих місць</label>
         </div>
       </div>
 
       <div class="filter-group">
-        <label>Вага критеріїв (регулюйте, щоб змінити результати)</label>
-        <div class="small">Транспорт</div>
-        <input id="w_transport" type="range" min="0" max="100" value="30" />
-        <div class="small">Інфраструктура</div>
-        <input id="w_infra" type="range" min="0" max="100" value="30" />
-        <div class="small">Безпека</div>
-        <input id="w_safety" type="range" min="0" max="100" value="20" />
-        <div class="small">Шум (мінімізувати)</div>
-        <input id="w_noise" type="range" min="0" max="100" value="20" />
+        <label>Вага критеріїв</label>
+        <div class="small">Транспорт</div><input id="w_transport" type="range" min="0" max="100" value="30" />
+        <div class="small">Інфраструктура</div><input id="w_infra" type="range" min="0" max="100" value="30" />
+        <div class="small">Безпека</div><input id="w_safety" type="range" min="0" max="100" value="20" />
+        <div class="small">Шум (мінімізувати)</div><input id="w_noise" type="range" min="0" max="100" value="20" />
       </div>
 
       <div style="display:flex;gap:8px;justify-content:space-between;margin-top:8px">
@@ -139,7 +121,18 @@
 
       <hr style="margin:12px 0" />
 
-      <div class="small">Порада: комбінуй фільтри і відрегулюй ваги, щоб підібрати райони під свій стиль життя.</div>
+      <h3 style="margin-bottom:8px">Завантажити GeoJSON</h3>
+      <div class="file-input">
+        <label class="small">districts GeoJSON (ADM2) — файл: <code>assets/kyiv_districts.geojson</code></label>
+        <input id="fileDistricts" type="file" accept=".geojson,.json" />
+        <label class="small">points GeoJSON — файл: <code>assets/points.geojson</code></label>
+        <input id="filePoints" type="file" accept=".geojson,.json" />
+        <button class="btn" id="btnLoadFiles" type="button">Load files</button>
+        <div class="status" id="fileStatus">Можна також покласти файли у папку assets/ — або натисни Load files.</div>
+      </div>
+
+      <hr style="margin:12px 0" />
+      <div class="small">Порада: краще за все покласти точні GeoJSON з geoBoundaries (ADM2) та points з Overpass (я можу згенерувати — скажи "зроби файли").</div>
     </aside>
 
     <!-- CENTER: MAP -->
@@ -148,17 +141,14 @@
         <div id="map" aria-label="Карта районів Києва"></div>
       </div>
 
-      <!-- Таблиця статистики під картою (широка) -->
       <div style="margin-top:12px;background:#fff;padding:12px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.04)">
-        <h3 style="margin:0 0 8px;color:var(--accent)">Таблиця статистики по районам (коротко)</h3>
+        <h3 style="margin:0 0 8px;color:var(--accent)">Таблиця статистики по районам</h3>
         <div style="overflow:auto">
           <table class="stats-table" id="statsTable" style="width:100%">
             <thead>
-              <tr><th>Район</th><th>Населення</th><th>Шкіл</th><th>Садків</th><th>Метро</th><th>Робочих місць (прибл.)</th><th>Середня ціна, грн/м²</th></tr>
+              <tr><th>Район</th><th>Населення</th><th>Шкіл</th><th>Садків</th><th>Метро</th><th>Робочих місць</th><th>Середня ціна, грн/м²</th></tr>
             </thead>
-            <tbody>
-              <!-- rows will be injected -->
-            </tbody>
+            <tbody></tbody>
           </table>
         </div>
       </div>
@@ -167,14 +157,11 @@
     <!-- RIGHT: LIST OF DISTRICTS -->
     <aside class="panel" id="rightPanel">
       <h3>Райони (в порядку релевантності)</h3>
-      <div id="districtList">
-        <!-- district rows injected here -->
-      </div>
-
+      <div id="districtList"></div>
       <hr style="margin:12px 0" />
       <div>
         <h4 style="margin:0 0 6px">Пояснення рейтингу</h4>
-        <div class="small">Рейтинг розраховується за вагою критеріїв зліва. Шум враховується негативно.</div>
+        <div class="small">Рейтинг розраховується за вагами ліворуч. Шум враховується негативно.</div>
       </div>
     </aside>
 
@@ -185,7 +172,6 @@
 <div class="top3-box" id="top3Box" aria-live="polite">
   <h4>ТОП-3 районів</h4>
   <div id="top3List">
-    <!-- injected -->
     <div class="top3-item">1. —</div>
     <div class="top3-item">2. —</div>
     <div class="top3-item">3. —</div>
@@ -194,124 +180,251 @@
 
 <footer>© <span id="year"></span> БЕТОН — демо.</footer>
 
-<!-- Leaflet JS (без integrity) -->
+<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  /* =============== DATA =============== */
-  const districts = [
-    { id:'pechersk', name:'Печерський', population:150000, schools:22, kindergartens:18, metro:4, jobs:120000, price_avg:52000,
-      coords: [[30.520,50.430],[30.545,50.430],[30.545,50.447],[30.520,50.447]] },
-    { id:'podil', name:'Подільський', population:140000, schools:18, kindergartens:10, metro:5, jobs:90000, price_avg:42000,
-      coords: [[30.505,50.445],[30.525,50.445],[30.525,50.463],[30.505,50.463]] },
-    { id:'obolon', name:'Оболонський', population:180000, schools:30, kindergartens:25, metro:3, jobs:70000, price_avg:35000,
-      coords: [[30.505,50.485],[30.535,50.485],[30.535,50.503],[30.505,50.503]] },
-    { id:'holosiiv', name:'Голосіївський', population:200000, schools:40, kindergartens:30, metro:3, jobs:80000, price_avg:40000,
-      coords: [[30.48,50.405],[30.53,50.405],[30.53,50.435],[30.48,50.435]] },
-    { id:'solom', name:'Солом\'янський', population:170000, schools:35, kindergartens:22, metro:4, jobs:95000, price_avg:39000,
-      coords: [[30.47,50.43],[30.495,50.43],[30.495,50.455],[30.47,50.455]] },
-    { id:'darnytsky', name:'Дарницький', population:310000, schools:60, kindergartens:45, metro:6, jobs:110000, price_avg:33000,
-      coords: [[30.56,50.43],[30.595,50.43],[30.595,50.47],[30.56,50.47]] },
-    { id:'desna', name:'Деснянський', population:350000, schools:55, kindergartens:40, metro:2, jobs:65000, price_avg:30000,
-      coords: [[30.57,50.49],[30.61,50.49],[30.61,50.525],[30.57,50.525]] },
-    { id:'sviatoshyn', name:'Святошинський', population:200000, schools:42, kindergartens:32, metro:3, jobs:70000, price_avg:31000,
-      coords: [[30.35,50.435],[30.415,50.435],[30.415,50.475],[30.35,50.475]] }
-  ];
+  // ---------- Config ----------
+  const defaultDistrictsPath = 'assets/kyiv_districts.geojson';
+  const defaultPointsPath = 'assets/points.geojson';
+  // If you want the page to try remote geoBoundaries automatically, put URL here:
+  // const remoteDistrictsURL = 'https://raw.githubusercontent.com/wmgeolab/geoBoundaries....../geoBoundaries-UKR-ADM2.geojson';
+  const remoteDistrictsURL = null; // set if you have a working raw URL
 
-  const points = [
-    {type:'school', name:'Ліцей №1 (Печерськ)', coords:[50.437,30.532], district:'pechersk'},
-    {type:'kindergarten', name:'Садок №12 (Печерськ)', coords:[50.439,30.534], district:'pechersk'},
-    {type:'metro', name:'Кловська (метро)', coords:[50.435,30.530], district:'pechersk'},
-    {type:'university', name:'Університет Печерськ', coords:[50.438,30.538], district:'pechersk'},
-    {type:'school', name:'Школа №22 (Поділ)', coords:[50.456,30.515], district:'podil'},
-    {type:'metro', name:'Контрактова площа', coords:[50.450,30.515], district:'podil'},
-    {type:'park', name:'Парк Оболонь', coords:[50.497,30.522], district:'obolon'},
-    {type:'school', name:'Школа №5 (Оболонь)', coords:[50.492,30.520], district:'obolon'},
-    {type:'park', name:'Голосіївський парк', coords:[50.415,30.514], district:'holosiiv'},
-    {type:'school', name:'Школа №78 (Голосіїв)', coords:[50.418,30.510], district:'holosiiv'},
-    {type:'metro', name:'Вокзальна', coords:[50.437,30.520], district:'solom'},
-    {type:'job', name:'Офісний центр', coords:[50.435,30.518], district:'solom'},
-    {type:'school', name:'Школа Дарниця', coords:[50.431,30.572], district:'darnytsky'},
-    {type:'metro', name:'Лівобережна', coords:[50.451,30.557], district:'darnytsky'},
-    {type:'school', name:'Школа Деснянська', coords:[50.510,30.577], district:'desna'},
-    {type:'park', name:'Парк Святошин', coords:[50.450,30.380], district:'sviatoshyn'}
-  ];
-
-  /* ================ MAP INIT ================ */
+  // ---------- Map init ----------
   const map = L.map('map',{preferCanvas:true}).setView([50.45,30.52], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom:19
-  }).addTo(map);
+
+  // base maps
+  const basePositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM &amp; CartoDB', maxZoom:19 });
+  const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom:19 });
+  const baseEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Esri', maxZoom:19 });
+
+  basePositron.addTo(map);
+  const baseMaps = { "Positron (light)": basePositron, "OSM Standard": baseOSM, "Esri Satellite": baseEsri };
+
+  // overlay placeholders (populated later)
+  const overlayMaps = {};
+  L.control.layers(baseMaps, overlayMaps, {collapsed:false}).addTo(map);
+
   setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
 
-  /* icons */
+  // ---------- helpers ----------
   function svgIcon(color, label){
-    const svg = encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"><circle cx="12" cy="10" r="7" fill="${color}"/><text x="12" y="14" font-size="10" fill="#fff" text-anchor="middle">${label}</text></svg>`
-    );
-    return L.icon({iconUrl: 'data:image/svg+xml;utf8,'+svg, iconSize:[28,28], iconAnchor:[14,28], popupAnchor:[0,-26]});
+    const svg = encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"><circle cx="12" cy="10" r="7" fill="${color}"/><text x="12" y="14" font-size="10" fill="#fff" text-anchor="middle">${label}</text></svg>`);
+    return L.icon({iconUrl:'data:image/svg+xml;utf8,'+svg, iconSize:[28,28], iconAnchor:[14,28], popupAnchor:[0,-26]});
   }
-  const icons = {
-    school: svgIcon('#1f8ef1','S'),
-    kindergarten: svgIcon('#f39c12','K'),
-    university: svgIcon('#9b59b6','U'),
-    metro: svgIcon('#e74c3c','M'),
-    park: svgIcon('#2ecc71','P'),
-    job: svgIcon('#34495e','J')
+  const icons = { school: svgIcon('#1f8ef1','S'), kindergarten: svgIcon('#f39c12','K'), university: svgIcon('#9b59b6','U'), metro: svgIcon('#e74c3c','M'), park: svgIcon('#2ecc71','P'), job: svgIcon('#34495e','J'), other: svgIcon('#777','?') };
+
+  // global store
+  const state = {
+    districtsGeo: null, pointsGeo: null,
+    districtLayers: {}, typeLayers: {}, districtStats: {}, districtPrices: {}
   };
 
-  /* layers */
-  const pointLayerGroup = L.layerGroup().addTo(map);
-  const districtLayerGroup = L.layerGroup().addTo(map);
-  const districtLayers = {};
+  // ---------- load utilities ----------
+  async function tryFetchJSON(path){
+    try {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch(e){
+      return null;
+    }
+  }
 
-  districts.forEach(d=>{
-    const latlngs = d.coords.map(c => [c[1], c[0]]);
-    const poly = L.polygon(latlngs, { color:'#c0d6cf', weight:1, fillColor:'#f7f9f8', fillOpacity:0.5 }).addTo(districtLayerGroup);
-    poly.bindTooltip(`<strong>${d.name}</strong><br/>Ціна: ${d.price_avg.toLocaleString()} грн/м²`, {sticky:true});
-    poly.on('click', ()=> showDistrictDetail(d.id));
-    districtLayers[d.id] = poly;
-  });
+  // Load districts (try local -> remote if set)
+  async function loadDistricts(){
+    let geo = await tryFetchJSON(defaultDistrictsPath);
+    if (!geo && remoteDistrictsURL) geo = await tryFetchJSON(remoteDistrictsURL);
+    return geo;
+  }
 
-  points.forEach(p=>{
-    const marker = L.marker(p.coords, {icon: icons[p.type] || svgIcon('#777', p.type[0].toUpperCase())});
-    marker.bindPopup(`<b>${p.name}</b><br/><small>${p.type}</small>`);
-    marker.addTo(pointLayerGroup);
-  });
+  // Load points (local only recommended)
+  async function loadPoints(){
+    const geo = await tryFetchJSON(defaultPointsPath);
+    return geo;
+  }
 
-  try{ const group = L.featureGroup(Object.values(districtLayers)); map.fitBounds(group.getBounds().pad(0.12)); }catch(e){}
+  // ---------- drawing functions ----------
+  function clearDistrictLayers(){
+    Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} });
+    state.districtLayers = {};
+  }
+  function clearTypeLayers(){
+    Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} });
+    state.typeLayers = {};
+  }
 
-  /* ================ UI & LOGIC ================ */
-  function renderStatsTable(){
-    const tbody = document.querySelector('#statsTable tbody');
-    if(!tbody) return;
-    tbody.innerHTML = '';
+  function drawDistricts(geo){
+    clearDistrictLayers();
+    if (!geo || !geo.features) return;
+    const geoLayer = L.geoJSON(geo, {
+      style: f => ({color:'#666', weight:1, fillColor:'#f7f9f8', fillOpacity:0.45}),
+      onEachFeature: (feature, layer) => {
+        const props = feature.properties || {};
+        const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.NAME_1 || props.ADM2_EN || props.local_name) + '';
+        const displayName = props.name || props.NAME || props.ADM2_EN || props.local_name || id;
+        // store
+        state.districtLayers[id] = layer;
+        layer.bindTooltip(`<strong>${displayName}</strong><br/>Ціна: ${ (state.districtPrices[id] ? Number(state.districtPrices[id]).toLocaleString() + ' грн/м²' : '—') }`, {sticky:true});
+        layer.on('click', ()=> {
+          map.fitBounds(layer.getBounds(), {maxZoom:13});
+          const stats = state.districtStats[id] || {};
+          const cont = `<strong>${displayName}</strong><br/>Комфорт: ${ (props.comfort || '—') }/10<br/>
+            <small>Школи: ${stats.school||0}, Садки: ${stats.kindergarten||0}, Метро: ${stats.metro||0}</small><br/>
+            <a href="districts/${id}.html" target="_blank">Детальніше →</a>`;
+          L.popup({maxWidth:320}).setLatLng(layer.getBounds().getCenter()).setContent(cont).openOn(map);
+        });
+      }
+    }).addTo(map);
+    // zoom to bounds
+    try { map.fitBounds(geoLayer.getBounds().pad(0.12)); } catch(e){}
+  }
+
+  function buildTypeLayersAndMarkers(pointsGeo){
+    clearTypeLayers();
+    if (!pointsGeo || !pointsGeo.features) return;
+    // determine types
+    const typesSet = new Set();
+    pointsGeo.features.forEach(f=>{
+      const t = ((f.properties && (f.properties.type || f.properties.type_tag || f.properties.amenity)) || 'other').toString().toLowerCase();
+      typesSet.add(t);
+      if (!state.typeLayers[t]) {
+        state.typeLayers[t] = L.layerGroup();
+        // add to overlay control
+        L.control.layers(null, {[t]: state.typeLayers[t]}, {collapsed:false}).addTo(map);
+      }
+      const coords = (f.geometry && f.geometry.coordinates) || [];
+      if (!coords || coords.length < 2) return;
+      const lng = coords[0], lat = coords[1];
+      const icon = icons[t] || icons.other;
+      const name = (f.properties && (f.properties.name || f.properties.display_name || f.properties.NAME)) || t;
+      const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${name}</b><br/><small>${t}</small>`);
+      state.typeLayers[t].addLayer(m);
+    });
+
+    // create checkbox list for user to toggle types, in filters area
+    const container = document.createElement('div'); container.style.marginTop='8px';
+    container.innerHTML = '<strong>Показати обʼєкти на карті</strong>';
+    const list = document.createElement('div'); list.style.marginTop='6px';
+    typesSet.forEach(t=>{
+      const id = 'showtype_'+t;
+      const wrap = document.createElement('label'); wrap.style.display='block'; wrap.style.marginTop='6px';
+      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=true; cb.dataset.type=t; cb.id = id; cb.className='show-type';
+      cb.addEventListener('change', (e)=>{
+        if (e.target.checked) state.typeLayers[t] && state.typeLayers[t].addTo(map);
+        else state.typeLayers[t] && map.removeLayer(state.typeLayers[t]);
+      });
+      wrap.appendChild(cb);
+      const txt = document.createTextNode(' ' + t);
+      wrap.appendChild(txt);
+      list.appendChild(wrap);
+      // add to map by default
+      state.typeLayers[t].addTo(map);
+    });
+    container.appendChild(list);
+    // append after criteria list (replace if exists)
+    const criteriaList = document.getElementById('criteriaList');
+    if (criteriaList) {
+      // remove old auto types block if exists
+      const old = document.getElementById('autoTypesBlock');
+      if (old) old.remove();
+      const block = document.createElement('div'); block.id='autoTypesBlock'; block.style.marginTop='10px';
+      block.appendChild(container);
+      criteriaList.parentNode.insertBefore(block, criteriaList.nextSibling);
+    }
+  }
+
+  // ---------- compute district stats with turf ----------
+  function computeDistrictStats(pointsGeo, districtsGeo){
+    state.districtStats = {};
+    if (!pointsGeo || !districtsGeo) return;
+    const districts = districtsGeo.features;
+    const points = pointsGeo.features;
+    // prepare district ids and props
     districts.forEach(d=>{
+      const props = d.properties || {};
+      const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
+      state.districtStats[id] = state.districtStats[id] || { total:0 };
+    });
+    // for each point, find which district polygon contains it
+    points.forEach(p=>{
+      const pt = turf.point(p.geometry.coordinates);
+      for (const d of districts){
+        const props = d.properties || {};
+        const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
+        if (!id) continue;
+        try {
+          if (turf.booleanPointInPolygon(pt, d)){
+            const t = ((p.properties && (p.properties.type || p.properties.type_tag || p.properties.amenity)) || 'other').toString().toLowerCase();
+            state.districtStats[id] = state.districtStats[id] || {};
+            state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
+            state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
+            break; // assume a point in one district only
+          }
+        } catch(e){
+          // ignore geometry errors
+        }
+      }
+    });
+  }
+
+  // ---------- render UI: table, list, top3 ----------
+  function renderStatsTable(districtsGeo){
+    const tbody = document.querySelector('#statsTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const features = (districtsGeo && districtsGeo.features) || [];
+    features.forEach(f=>{
+      const props = f.properties || {};
+      const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
+      const name = props.name || props.NAME || props.ADM2_EN || id;
+      const stats = state.districtStats[id] || {};
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td><a href="districts/${d.id}.html">${d.name}</a></td>
-        <td>${(d.population||0).toLocaleString()}</td>
-        <td>${d.schools||0}</td>
-        <td>${d.kindergartens||0}</td>
-        <td>${d.metro||0}</td>
-        <td>${(d.jobs||0).toLocaleString()}</td>
-        <td>${(d.price_avg||0).toLocaleString()}</td>`;
+      tr.innerHTML = `<td><a href="districts/${id}.html">${name}</a></td>
+        <td>${(props.population || props.POP || props.pop || 0).toLocaleString()}</td>
+        <td>${(stats.school||0)}</td>
+        <td>${(stats.kindergarten||0)}</td>
+        <td>${(stats.metro||0)}</td>
+        <td>${(stats.office||0) + (stats.supermarket||0) + (stats.job||0)}</td>
+        <td>${(state.districtPrices[id] ? Number(state.districtPrices[id]).toLocaleString() : '—')}</td>`;
       tbody.appendChild(tr);
     });
   }
 
-  function renderDistrictList(sorted){
+  function renderDistrictListSorted(districtsGeo){
     const container = document.getElementById('districtList'); if(!container) return;
     container.innerHTML = '';
+    const features = (districtsGeo && districtsGeo.features) || [];
+    // compute comfort if not present based on existing computeComfortForAll logic (simple neight)
+    const arr = features.map(f=>{
+      const props = f.properties || {};
+      const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
+      const d = {
+        id, name: props.name || props.NAME || props.ADM2_EN || id,
+        population: props.population || 0,
+        price_avg: state.districtPrices[id] || props.price_avg || 0,
+        schools: (state.districtStats[id] && state.districtStats[id].school) || 0,
+        kindergartens: (state.districtStats[id] && state.districtStats[id].kindergarten) || 0,
+        metro: (state.districtStats[id] && state.districtStats[id].metro) || 0,
+        jobs: (state.districtStats[id] && (state.districtStats[id].office || state.districtStats[id].job)) || 0
+      };
+      // a simple heuristic comfort
+      const comfort = Math.round(
+        Math.min(10, ( (d.metro*1.8) + (d.schools*0.12) + (d.kindergartens*0.08) + (d.jobs/5000) ) / 2)
+      );
+      d.comfort = Math.max(1, Math.min(10, comfort));
+      return d;
+    });
+    const sorted = arr.sort((a,b)=>b.comfort - a.comfort);
+    // top3
+    renderTop3(sorted.slice(0,3));
     sorted.forEach(d=>{
       const el = document.createElement('div'); el.className='district-row';
-      const comfort = d.comfort || 1;
-      el.innerHTML = `<div>
-          <div class="district-name">${d.name}</div>
-          <div class="district-meta small">Комфорт: <strong>${comfort}/10</strong> · ${d.schools} шкіл · ${d.kindergartens} садків</div>
-          <div class="bar"><div class="fill" style="width:${comfort*10}%"></div></div>
-        </div>
+      el.innerHTML = `<div><div class="district-name">${d.name}</div>
+        <div class="district-meta small">Комфорт: <strong>${d.comfort}/10</strong> · ${d.schools} шкіл · ${d.kindergartens} садків</div>
+        <div class="bar"><div class="fill" style="width:${d.comfort*10}%"></div></div></div>
         <div style="text-align:right">
           <div class="small">${(d.price_avg||0).toLocaleString()} грн/м²</div>
           <div style="margin-top:6px"><button class="btn secondary" onclick="openDistrictPage('${d.id}')">Детальніше</button></div>
@@ -321,104 +434,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function computeComfortForAll(weights, activeCriteria, priceLimit){
-    const totalW = (weights.transport + weights.infra + weights.safety + weights.noise) || 1;
-    districts.forEach(d=>{
-      const transportScore = Math.min(10, Math.round((d.metro/6)*10));
-      const infraScore = Math.min(10, Math.round(((d.schools + d.kindergartens)/ (d.population/10000))*2));
-      const safetyScore = 6 + Math.round(((d.jobs/100000)-0.5)*4);
-      const noiseScore = 5;
-      let criteriaBonus = 0;
-      if (activeCriteria.has('schools') && (d.schools||0) > 30) criteriaBonus += 0.5;
-      if (activeCriteria.has('kindergartens') && (d.kindergartens||0) > 20) criteriaBonus += 0.5;
-      if (activeCriteria.has('universities') && d.universities) criteriaBonus += 0.7;
-      if (activeCriteria.has('metro') && (d.metro||0) >= 3) criteriaBonus += 0.8;
-      if (activeCriteria.has('parks') && d.parks) criteriaBonus += 0.4;
-      if (activeCriteria.has('jobs') && (d.jobs||0) > 80000) criteriaBonus += 0.6;
-      const raw = (transportScore*weights.transport + infraScore*weights.infra + safetyScore*weights.safety + (10-noiseScore)*weights.noise) / totalW;
-      let comfort = Math.round(raw + criteriaBonus);
-      if (priceLimit && d.price_avg > priceLimit) comfort = Math.max(1, comfort - 2);
-      comfort = Math.max(1, Math.min(10, comfort));
-      d.comfort = comfort;
-      d._sub = {transportScore, infraScore, safetyScore, noiseScore, criteriaBonus};
+  function renderTop3(sortedTop){
+    const container = document.getElementById('top3List'); if(!container) return;
+    container.innerHTML = '';
+    sortedTop.forEach((d,i)=>{
+      const el = document.createElement('div'); el.className='top3-item';
+      el.innerHTML = `<div><strong>${i+1}. ${d.name}</strong><div class="small">Комфорт ${d.comfort}/10 · ${ (d.price_avg||0).toLocaleString() } грн/м²</div></div>
+                      <div><button class="btn secondary" data-id="${d.id}">Відкрити</button></div>`;
+      el.addEventListener('click', ()=> openDistrictPage(d.id));
+      container.appendChild(el);
     });
   }
 
-  function getActiveCriteriaSet(){
-    const set = new Set();
-    document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
-    return set;
-  }
-  function getWeightsFromUI(){
-    return {
-      transport: parseInt(document.getElementById('w_transport')?.value,10) || 0,
-      infra: parseInt(document.getElementById('w_infra')?.value,10) || 0,
-      safety: parseInt(document.getElementById('w_safety')?.value,10) || 0,
-      noise: parseInt(document.getElementById('w_noise')?.value,10) || 0
-    };
-  }
-
-  function applyFiltersAndRender(){
-    const priceVal = parseInt(document.getElementById('filter_price')?.value,10) || 0;
-    const active = getActiveCriteriaSet();
-    const weights = getWeightsFromUI();
-    computeComfortForAll(weights, active, priceVal);
-    const sorted = districts.slice().sort((a,b)=>b.comfort - a.comfort);
-    renderDistrictList(sorted);
-    renderTop3(sorted.slice(0,3));
-    renderStatsTable();
-    highlightDistrictsByComfort();
-  }
-
-  function highlightDistrictsByComfort(){
-    districts.forEach(d=>{
-      const layer = districtLayers[d.id];
-      if (!layer) return;
-      const c = d.comfort || 1;
-      const color = c >=9 ? '#005a32' : c>=7 ? '#2ca02c' : c>=5 ? '#ffce73' : c>=3 ? '#ff8c42' : '#c73a00';
-      layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)});
-    });
-  }
-
-  function shadeColor(color, percent) {
-    const f=parseInt(color.slice(1),16),t=percent<0?0:255,p=percent<0?percent*-1:percent;
-    const R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF;
-    const newR=Math.round((t-R)*p/100)+R;
-    const newG=Math.round((t-G)*p/100)+G;
-    const newB=Math.round((t-B)*p/100)+B;
-    return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1);
-  }
-
+  // ---------- interactions ----------
   function focusDistrict(id){
-    const layer = districtLayers[id];
+    const layer = state.districtLayers[id];
     if (!layer) return;
     map.fitBounds(layer.getBounds(), {maxZoom:13});
   }
 
   function showDistrictDetail(id){
-    const d = districts.find(x=>x.id===id);
-    if (!d) return;
-    const layer = districtLayers[id];
-    if (layer) {
-      const center = layer.getBounds().getCenter();
+    const dLayer = state.districtLayers[id];
+    const props = (dLayer && dLayer.feature && dLayer.feature.properties) || {};
+    const displayName = props.name || props.NAME || id;
+    const stats = state.districtStats[id] || {};
+    if (dLayer) {
+      const center = dLayer.getBounds().getCenter();
       L.popup({maxWidth:300})
         .setLatLng(center)
-        .setContent(`<strong>${d.name}</strong><br/>Комфорт: ${d.comfort}/10<br/><a href="districts/${d.id}.html">Детальніше про район →</a>`)
+        .setContent(`<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html">Детальніше →</a>`)
         .openOn(map);
     }
-  }
-
-  function renderTop3(sortedTop){
-    const container = document.getElementById('top3List');
-    if (!container) return;
-    container.innerHTML = '';
-    sortedTop.forEach((d,i)=>{
-      const el = document.createElement('div'); el.className='top3-item';
-      el.innerHTML = `<div><strong>${i+1}. ${d.name}</strong><div class="small">Комфорт ${d.comfort}/10 · ${d.price_avg.toLocaleString()} грн/м²</div></div>
-                      <div><button class="btn secondary" data-id="${d.id}">Відкрити</button></div>`;
-      el.addEventListener('click', (e)=>{ openDistrictPage(d.id); });
-      container.appendChild(el);
-    });
   }
 
   function openDistrictPage(id){
@@ -426,35 +472,144 @@ document.addEventListener('DOMContentLoaded', () => {
     window.open(`districts/${id}.html`, '_blank');
   }
 
-  /* initial render */
-  applyFiltersAndRender();
+  // expose global funcs for onclicks
+  window.openDistrictPage = openDistrictPage;
+  window._BETON = { map, state, focusDistrict, showDistrictDetail };
 
-  /* events */
-  const applyBtn = document.getElementById('applyFilters'); if (applyBtn) applyBtn.addEventListener('click', applyFiltersAndRender);
-  const resetBtn = document.getElementById('resetFilters'); if (resetBtn) resetBtn.addEventListener('click', ()=>{
+  // ---------- main load flow ----------
+  async function mainLoad(){
+    document.getElementById('fileStatus').textContent = 'Завантаження файлів (перевірка assets/)...';
+    const [districtsGeo, pointsGeo] = await Promise.all([loadDistricts(), loadPoints()]);
+    if (!districtsGeo) {
+      document.getElementById('fileStatus').textContent = 'Не знайдено assets/kyiv_districts.geojson. Завантажте файл вручну або вкажіть remoteDistrictsURL в коді.';
+    } else {
+      state.districtsGeo = districtsGeo;
+      drawDistricts(districtsGeo);
+    }
+    if (!pointsGeo) {
+      document.getElementById('fileStatus').textContent += ' Не знайдено assets/points.geojson.';
+    } else {
+      state.pointsGeo = pointsGeo;
+      buildTypeLayersAndMarkers(pointsGeo);
+    }
+    if (state.districtsGeo && state.pointsGeo){
+      document.getElementById('fileStatus').textContent = 'Файли завантажені. Обчислюю статистику...';
+      computeDistrictStats(state.pointsGeo, state.districtsGeo);
+      renderStatsTable(state.districtsGeo);
+      renderDistrictListSorted(state.districtsGeo);
+      document.getElementById('fileStatus').textContent = 'Готово — можна фільтрувати та переглядати райони.';
+    }
+  }
+
+  mainLoad();
+
+  // ---------- file inputs (local load) ----------
+  document.getElementById('btnLoadFiles').addEventListener('click', async ()=>{
+    const fD = document.getElementById('fileDistricts').files[0];
+    const fP = document.getElementById('filePoints').files[0];
+    if (!fD && !fP) { alert('Оберіть файл(и) для завантаження'); return; }
+    document.getElementById('fileStatus').textContent = 'Завантажую файли з локальної машини...';
+    if (fD) {
+      const txt = await fD.text();
+      try { state.districtsGeo = JSON.parse(txt); drawDistricts(state.districtsGeo); }
+      catch(e){ alert('Некоректний GeoJSON для районів'); console.error(e); }
+    }
+    if (fP) {
+      const txt = await fP.text();
+      try { state.pointsGeo = JSON.parse(txt); buildTypeLayersAndMarkers(state.pointsGeo); }
+      catch(e){ alert('Некоректний GeoJSON для точок'); console.error(e); }
+    }
+    if (state.districtsGeo && state.pointsGeo){
+      computeDistrictStats(state.pointsGeo, state.districtsGeo);
+      renderStatsTable(state.districtsGeo);
+      renderDistrictListSorted(state.districtsGeo);
+      document.getElementById('fileStatus').textContent = 'Файли завантажено і оброблено.';
+    } else {
+      document.getElementById('fileStatus').textContent = 'Файли частково завантажені; перевірте консоль на помилки.';
+    }
+  });
+
+  // ---------- filters and UI ----------
+  function getActiveCriteriaSet(){
+    const set = new Set();
+    document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
+    return set;
+  }
+  function getWeightsFromUI(){
+    return {
+      transport: parseInt(document.getElementById('w_transport').value,10) || 0,
+      infra: parseInt(document.getElementById('w_infra').value,10) || 0,
+      safety: parseInt(document.getElementById('w_safety').value,10) || 0,
+      noise: parseInt(document.getElementById('w_noise').value,10) || 0
+    };
+  }
+
+  function computeComfortForAll_UI(){
+    // recompute simple comfort heuristic per district using state.districtStats
+    const districtsGeo = state.districtsGeo;
+    if (!districtsGeo) return;
+    districtsGeo.features.forEach(f => {
+      const props = f.properties || {};
+      const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
+      const stats = state.districtStats[id] || {};
+      const transportScore = Math.min(10, (stats.metro||0) * 2);
+      const infraScore = Math.min(10, ((stats.school||0) + (stats.kindergarten||0)) * 0.2);
+      const safetyScore = Math.min(10, ((stats.office||0) || 0) / 5);
+      const noiseScore = 5;
+      const weights = getWeightsFromUI();
+      const totalW = (weights.transport + weights.infra + weights.safety + weights.noise) || 1;
+      const raw = (transportScore*weights.transport + infraScore*weights.infra + safetyScore*weights.safety + (10-noiseScore)*weights.noise) / totalW;
+      let comfort = Math.round(raw);
+      if (state.districtPrices[id] && state.districtPrices[id] > (parseInt(document.getElementById('filter_price').value||0) || Infinity)) comfort -= 2;
+      props.comfort = Math.max(1, Math.min(10, comfort));
+    });
+  }
+
+  document.getElementById('applyFilters').addEventListener('click', ()=>{
+    computeComfortForAll_UI();
+    renderDistrictListSorted(state.districtsGeo);
+    renderStatsTable(state.districtsGeo);
+    // also recolor polygons by comfort
+    if (state.districtsGeo){
+      state.districtsGeo.features.forEach(f=>{
+        const props = f.properties||{};
+        const id = (props.gid || props.ID || props.id || props.NAME || props.name || props.ADM2_EN || props.local_name) + '';
+        const c = props.comfort || 1;
+        const color = c >=9 ? '#005a32' : c>=7 ? '#2ca02c' : c>=5 ? '#ffce73' : c>=3 ? '#ff8c42' : '#c73a00';
+        const layer = state.districtLayers[id];
+        if (layer) layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)});
+      });
+    }
+  });
+
+  document.getElementById('resetFilters').addEventListener('click', ()=>{
     document.querySelectorAll('.crit').forEach(cb=>cb.checked=false);
-    const priceEl = document.getElementById('filter_price'); if (priceEl) priceEl.value='';
+    document.getElementById('filter_price').value = '';
     document.getElementById('w_transport').value = 30;
     document.getElementById('w_infra').value = 30;
     document.getElementById('w_safety').value = 20;
     document.getElementById('w_noise').value = 20;
-    applyFiltersAndRender();
-  });
-  const priceReset = document.getElementById('price_reset'); if (priceReset) priceReset.addEventListener('click', ()=>{ const p=document.getElementById('filter_price'); if(p)p.value=''; });
-
-  const statsTable = document.getElementById('statsTable'); if (statsTable) statsTable.addEventListener('click', (e)=>{
-    const a = e.target.closest('a');
-    if (a){
-      const href = a.getAttribute('href');
-      if (href && href.startsWith('districts/')){
-        const id = href.split('/').pop().replace('.html','');
-        focusDistrict(id);
-      }
-    }
+    computeComfortForAll_UI();
+    renderDistrictListSorted(state.districtsGeo);
+    renderStatsTable(state.districtsGeo);
   });
 
-  /* expose for debugging */
-  window._BETON = {map, districtLayers, districts, points, applyFiltersAndRender, openDistrictPage};
+  document.getElementById('price_reset').addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
+
+  // ---------- util: shade color ----------
+  function shadeColor(color, percent) {
+    try {
+      const f=parseInt(color.slice(1),16),t=percent<0?0:255,p=percent<0?percent*-1:percent;
+      const R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF;
+      const newR=Math.round((t-R)*p/100)+R;
+      const newG=Math.round((t-G)*p/100)+G;
+      const newB=Math.round((t-B)*p/100)+B;
+      return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1);
+    } catch(e){ return color; }
+  }
+
+  // ---------- expose debug ----------
+  window._BETON = Object.assign(window._BETON || {}, { state, computeDistrictStats, renderStatsTable, renderDistrictListSorted });
 
   document.getElementById('year').textContent = new Date().getFullYear();
 }); // DOMContentLoaded
