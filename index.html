@@ -1,127 +1,328 @@
 <!doctype html>
 <html lang="uk">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>БЕТОН — простий пошук житла</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
-      background: #f5f7fa;
-      color: #222;
-    }
-    header {
-      background: #0b3b5c;
-      color: #fff;
-      padding: 24px 16px;
-      text-align: center;
-    }
-    main {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 24px 16px;
-    }
-    .hero {
-      background: #ffffff;
-      border-radius: 12px;
-      padding: 32px 20px;
-      text-align: center;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
-    }
-    .hero h2 {
-      margin-top: 0;
-    }
-    .search {
-      margin-top: 20px;
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    input, select {
-      padding: 10px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      min-width: 180px;
-    }
-    button {
-      padding: 10px 16px;
-      border-radius: 6px;
-      border: none;
-      background: #ff8c42;
-      color: #fff;
-      font-size: 15px;
-      cursor: pointer;
-    }
-    section {
-      margin-top: 32px;
-    }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 16px;
-    }
-    .card {
-      background: #fff;
-      border-radius: 10px;
-      padding: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
-    footer {
-      margin-top: 40px;
-      padding: 16px;
-      text-align: center;
-      color: #666;
-      font-size: 14px;
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>БЕТОН — Де в Києві найкомфортніше жити (прототип)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --accent:#0b3b5c;
+    --accent-2:#ff8c42;
+    --panel-bg:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:#f4f6f8;color:#222}
+  header{background:var(--accent);color:#fff;padding:14px 16px}
+  .brand{max-width:1200px;margin:0 auto;display:flex;gap:12px;align-items:center}
+  .brand h1{font-size:20px;margin:0}
+  .brand p{margin:0;opacity:.92}
+  main.container{max-width:1200px;margin:18px auto;padding:16px;display:block}
+  .layout{display:flex;gap:16px;align-items:flex-start}
+  .mapwrap{flex:1;min-height:520px;border-radius:10px;overflow:hidden;border:1px solid #e1e5ea;box-shadow:0 6px 18px rgba(11,59,92,0.06)}
+  #map{width:100%;height:100%}
+  aside.panel{width:360px;min-width:260px;background:var(--panel-bg);border-radius:10px;padding:12px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+  aside.panel h2{color:var(--accent);margin:6px 0 10px;font-size:18px}
+  .controls{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .controls input[type="text"]{flex:1;padding:8px;border:1px solid #e3e6ea;border-radius:6px}
+  .controls button, .controls select{padding:8px 10px;border-radius:6px;border:0;background:var(--accent-2);color:#fff;cursor:pointer}
+  .district-item{padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid #f0f0f0;background:#fff;display:flex;justify-content:space-between;gap:10px;align-items:center}
+  .district-item .left{flex:1}
+  .district-item strong{display:block;font-size:15px}
+  .meta{font-size:13px;color:#666;margin-top:4px}
+  .score{font-weight:700;color:var(--accent)}
+  .detail{margin-top:12px;padding:10px;border-radius:8px;background:#fbfbfb;border:1px solid #eee}
+  footer{max-width:1200px;margin:18px auto;padding:12px 16px;color:#666;font-size:13px;text-align:center}
+  .legend{font-size:13px;background:#fff;padding:8px;border-radius:6px;border:1px solid #eee}
+  .legend .row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .colorbox{width:28px;height:14px;border-radius:3px}
+  /* responsive */
+  @media(max-width:960px){
+    .layout{flex-direction:column}
+    .mapwrap{min-height:60vh}
+    aside.panel{width:100%}
+  }
+</style>
 </head>
 <body>
-
 <header>
-  <h1>БЕТОН</h1>
-  <p>Бюро ефективного територіального оцінювання нерухомості</p>
+  <div class="brand">
+    <h1>БЕТОН</h1>
+    <p>Прототип: підкажемо, де в Києві жити найкомфортніше</p>
+  </div>
 </header>
 
-<main>
-  <div class="hero">
-    <h2>Знайди житло у потрібному районі</h2>
-    <p>Швидкий і зручний сервіс для пошуку місця під житло</p>
-
-    <div class="search">
-      <input type="text" placeholder="Район або адреса">
-      <select>
-        <option>Будь-який тип</option>
-        <option>Квартира</option>
-        <option>Будинок</option>
-      </select>
-      <button>Пошук</button>
+<main class="container">
+  <div class="layout">
+    <div class="mapwrap" aria-label="Карта Києва">
+      <div id="map"></div>
     </div>
+
+    <aside class="panel" id="panel">
+      <h2>Райони Києва</h2>
+
+      <div class="controls">
+        <input id="search" type="text" placeholder="Пошук району (назва)..." />
+        <button id="resetBtn">Показати всі</button>
+      </div>
+
+      <div id="list"></div>
+
+      <div class="detail" id="detail" style="display:none">
+        <div id="detail-title" style="font-weight:700;font-size:16px;color:var(--accent)"></div>
+        <div id="detail-summary" class="meta" style="margin-top:6px"></div>
+        <div style="margin-top:8px">
+          <strong>Оцінки (приклад)</strong>
+          <ul id="detail-scores" style="margin:6px 0 0 18px;padding:0"></ul>
+        </div>
+        <div style="margin-top:10px">
+          <a id="detail-link" href="#" style="color:var(--accent);font-weight:700">Перейти до сторінки району →</a>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="legend">
+          <strong>Легенда — комфорт</strong>
+          <div class="row"><div class="colorbox" style="background:#005a32"></div><div>9–10 — Дуже високий</div></div>
+          <div class="row"><div class="colorbox" style="background:#2ca02c"></div><div>7–8 — Високий</div></div>
+          <div class="row"><div class="colorbox" style="background:#ffce73"></div><div>5–6 — Середній</div></div>
+          <div class="row"><div class="colorbox" style="background:#ff8c42"></div><div>3–4 — Низький</div></div>
+          <div class="row"><div class="colorbox" style="background:#c73a00"></div><div>1–2 — Дуже низький</div></div>
+        </div>
+      </div>
+
+    </aside>
   </div>
-
-  <section>
-    <h3>Приклади пропозицій</h3>
-    <div class="cards">
-      <div class="card">
-        <strong>Квартира, центр</strong>
-        <p>2 кімнати · 48 м² · поруч метро</p>
-      </div>
-      <div class="card">
-        <strong>Студія, спальний район</strong>
-        <p>1 кімната · 32 м² · тихо</p>
-      </div>
-      <div class="card">
-        <strong>Будинок, передмістя</strong>
-        <p>120 м² · ділянка · гараж</p>
-      </div>
-    </div>
-  </section>
 </main>
 
-<footer>
-  © 2026 БЕТОН · простий пошук житла
-</footer>
+<footer>© <span id="year"></span> БЕТОН — демо. Замінити полігони на реальні GeoJSON можна пізніше.</footer>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // UI init
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  // Ініціалізація карти з OpenStreetMap (комфортна мапа)
+  const map = L.map('map', {preferCanvas:true}).setView([50.45,30.52], 11);
+
+  // Основний шар — OpenStreetMap
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom:19
+  }).addTo(map);
+
+  // Демо-дані: спрощені полігони районів (приблизні контури для прототипу)
+  // Кожен район містить: id, name, summary, link, scores {transport, infra, safety, noise}, comfort (1-10)
+  const districts = [
+    {
+      id: 'shevchenkivskyi',
+      name: 'Шевченківський',
+      summary: 'Центральний, культурні обʼєкти, поруч університети.',
+      link: 'district_shevchenkivskyi.html',
+      comfort: 8,
+      scores:{transport:9, infra:8, safety:7, noise:6},
+      coords: [[30.505,50.455],[30.525,50.455],[30.525,50.475],[30.505,50.475],[30.505,50.455]]
+    },
+    {
+      id: 'pechersk',
+      name: 'Печерськ',
+      summary: 'Адміністративний центр, розвинена інфраструктура, дорожче житло.',
+      link: 'district_pechersk.html',
+      comfort: 9,
+      scores:{transport:9, infra:9, safety:7, noise:5},
+      coords: [[30.52,50.43],[30.545,50.43],[30.545,50.447],[30.52,50.447],[30.52,50.43]]
+    },
+    {
+      id: 'podil',
+      name: 'Поділ',
+      summary: 'Історична частина, річка поруч, активне життя.',
+      link: 'district_podil.html',
+      comfort: 7,
+      scores:{transport:7, infra:7, safety:6, noise:7},
+      coords: [[30.505,50.445],[30.525,50.445],[30.525,50.462],[30.505,50.462],[30.505,50.445]]
+    },
+    {
+      id: 'obolon',
+      name: 'Оболонь',
+      summary: 'Багато зелених зон, новобудови, набережні.',
+      link: 'district_obolon.html',
+      comfort: 7,
+      scores:{transport:6, infra:7, safety:8, noise:4},
+      coords: [[30.505,50.485],[30.535,50.485],[30.535,50.503],[30.505,50.503],[30.505,50.485]]
+    },
+    {
+      id: 'solomianskyi',
+      name: 'Солом\'янський',
+      summary: 'Житлові райони, транспортні вузли, доступні ціни.',
+      link: 'district_solomianskyi.html',
+      comfort: 6,
+      scores:{transport:7, infra:6, safety:6, noise:5},
+      coords: [[30.47,50.43],[30.495,50.43],[30.495,50.455],[30.47,50.455],[30.47,50.43]]
+    },
+    {
+      id: 'holosiivskyi',
+      name: 'Голосіївський',
+      summary: 'Великі парки, тихі мікрорайони, підходить для сімей.',
+      link: 'district_holosiivskyi.html',
+      comfort: 8,
+      scores:{transport:6, infra:7, safety:8, noise:3},
+      coords: [[30.48,50.405],[30.53,50.405],[30.53,50.435],[30.48,50.435],[30.48,50.405]]
+    },
+    {
+      id: 'darnytskyi',
+      name: 'Дарницький',
+      summary: 'Східна частина міста, багатоповерхова забудова, нові ЖК.',
+      link: 'district_darnytskyi.html',
+      comfort: 6,
+      scores:{transport:6, infra:6, safety:6, noise:6},
+      coords: [[30.56,50.43],[30.595,50.43],[30.595,50.47],[30.56,50.47],[30.56,50.43]]
+    },
+    {
+      id: 'dniprovskyi',
+      name: 'Дніпровський',
+      summary: 'Поблизу річки, кілька паркових зон, середні ціни.',
+      link: 'district_dniprovskyi.html',
+      comfort: 6,
+      scores:{transport:6, infra:6, safety:6, noise:5},
+      coords: [[30.545,50.455],[30.575,50.455],[30.575,50.48],[30.545,50.48],[30.545,50.455]]
+    },
+    {
+      id: 'desnianskyi',
+      name: 'Деснянський',
+      summary: 'Північна частина, густонаселені мікрорайони, доступні ціни.',
+      link: 'district_desnianskyi.html',
+      comfort: 5,
+      scores:{transport:5, infra:5, safety:5, noise:5},
+      coords: [[30.57,50.49],[30.61,50.49],[30.61,50.525],[30.57,50.525],[30.57,50.49]]
+    },
+    {
+      id: 'sviatoshynskyi',
+      name: 'Святошинський',
+      summary: 'Західний напрямок, спокійні райони, багато зелені.',
+      link: 'district_sviatoshynskyi.html',
+      comfort: 6,
+      scores:{transport:5, infra:6, safety:7, noise:4},
+      coords: [[30.35,50.435],[30.415,50.435],[30.415,50.475],[30.35,50.475],[30.35,50.435]]
+    }
+  ];
+
+  // Функція кольору по рейтингу (comfort 1..10)
+  function getColorByComfort(v){
+    if (v >= 9) return '#005a32'; // dark green
+    if (v >= 7) return '#2ca02c'; // green
+    if (v >= 5) return '#ffce73'; // yellow
+    if (v >= 3) return '#ff8c42'; // orange
+    return '#c73a00'; // red
+  }
+
+  // Масив для зберігання шарів щоб маніпулювати
+  const layers = {};
+
+  // Додаємо полігони на карту
+  const allBounds = [];
+  districts.forEach(d=>{
+    const latlngs = d.coords.map(c => [c[1], c[0]]); // Leaflet uses [lat, lng]
+    const layer = L.polygon(latlngs, {
+      color: '#c77a00',
+      weight: 1,
+      fillColor: getColorByComfort(d.comfort),
+      fillOpacity: 0.6
+    }).addTo(map);
+
+    // tooltip при ховері
+    layer.bindTooltip('<strong>'+d.name+'</strong><br>Комфорт: '+d.comfort+'/10<br>'+d.summary, {sticky:true, direction:'top'});
+
+    // події
+    layer.on('mouseover', () => {
+      layer.setStyle({weight:2, fillOpacity:0.8});
+      // bring to front for non-IE
+      if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront();
+    });
+    layer.on('mouseout', () => {
+      layer.setStyle({weight:1, fillOpacity:0.6});
+    });
+    layer.on('click', () => {
+      showDetail(d);
+      // на випадок коли вже хочемо перехід на сторінку:
+      // window.location.href = d.link;
+    });
+
+    layers[d.id] = layer;
+    allBounds.push(layer.getBounds());
+  });
+
+  // Fit map to all districts
+  const groupBounds = allBounds.reduce((acc,b)=>{
+    if (!acc) return b;
+    return acc.extend(b);
+  }, null);
+  if (groupBounds) map.fitBounds(groupBounds.pad(0.12));
+
+  // Побудова правого списку (сортуємо за комфортом)
+  const listEl = document.getElementById('list');
+
+  function buildList(filterText=''){
+    listEl.innerHTML = '';
+    // копія масив з сортуванням
+    const arr = districts.slice().filter(d=>d.name.toLowerCase().includes(filterText.toLowerCase()));
+    arr.sort((a,b)=>b.comfort - a.comfort);
+    arr.forEach(d=>{
+      const item = document.createElement('div');
+      item.className = 'district-item';
+      const left = document.createElement('div'); left.className='left';
+      left.innerHTML = '<strong>'+d.name+'</strong><div class="meta">'+d.summary+'</div>';
+      const right = document.createElement('div'); right.style.textAlign='right';
+      right.innerHTML = '<div class="score">'+d.comfort+'/10</div><div style="font-size:12px;color:#888">комфорт</div>';
+      item.appendChild(left); item.appendChild(right);
+      // події
+      item.addEventListener('mouseover', ()=>{ layers[d.id].fire('mouseover'); map.fitBounds(layers[d.id].getBounds(), {maxZoom:13}); });
+      item.addEventListener('mouseout', ()=>{ layers[d.id].fire('mouseout'); });
+      item.addEventListener('click', ()=>{ layers[d.id].fire('click'); });
+      listEl.appendChild(item);
+    });
+    if (arr.length===0){
+      listEl.innerHTML = '<div style="color:#666">Нічого не знайдено</div>';
+    }
+  }
+
+  buildList();
+
+  // Показати деталі району в правій панелі
+  function showDetail(d){
+    document.getElementById('detail').style.display = 'block';
+    document.getElementById('detail-title').textContent = d.name;
+    document.getElementById('detail-summary').textContent = d.summary;
+    const ul = document.getElementById('detail-scores');
+    ul.innerHTML = '';
+    for (const k in d.scores){
+      const li = document.createElement('li');
+      li.textContent = capitalize(k) + ': ' + d.scores[k] + '/10';
+      ul.appendChild(li);
+    }
+    const link = document.getElementById('detail-link');
+    link.href = d.link;
+    link.onclick = function(e){
+      // якщо файлу ще немає — дозволяємо відкриття в новому вікні (пізніше створимо файли)
+      // можна також зробити попереджувальне модальне вікно
+      return true; // звичайна навігація
+    };
+  }
+
+  function capitalize(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+
+  // Пошук
+  document.getElementById('search').addEventListener('input', (e)=>{ buildList(e.target.value); });
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    buildList('');
+    map.fitBounds(groupBounds.pad(0.12));
+    document.getElementById('search').value = '';
+    document.getElementById('detail').style.display = 'none';
+  });
+
+  // Примітка для подальшої роботи:
+  // - Щоб підключити реальні контури районів, заміни "districts" на GeoJSON набори (fetch('kyiv_districts.geojson').then(...))
+  // - Посилання d.link вела на окремі сторінки district_<id>.html — я можу згенерувати їх при твоєму запиті.
+</script>
 </body>
 </html>
