@@ -530,86 +530,720 @@ document.addEventListener('DOMContentLoaded', () => {
     const layer = state.districtLayers[id]; const props = (layer && layer.feature && layer.feature.properties) || {};
     const displayName = props.name || props.NAME || id; const stats = state.districtStats[id] || {};
     if (layer){ const center = layer.getBounds().getCenter(); L.popup({maxWidth:300}).setLatLng(center).setContent(`<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html">Детальніше →</a>`).openOn(map); }
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>БЕТОН — Де в Києві найкраще купити житло</title>
+
+<!-- Leaflet CSS (без integrity) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+
+<!-- Turf (для точного point-in-polygon в браузері) -->
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+<style>
+  :root{
+    --accent: #111111;
+    --muted: #6b7280;
+    --panel-bg: #fff;
+    --glass: rgba(255,255,255,0.92);
+    --light-mid: #dcdfe2;
+  }
+
+  html,body{height:100%;margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:#f3f6f8;color:#111}
+  header{
+    background:#2f3438;
+    color:#fff;
+    padding:16px 0;
+    box-shadow:0 2px 8px rgba(0,0,0,0.06);
+  }
+  .brand{max-width:1500px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:0 18px}
+  .brand h1{font-size:20px;margin:0;color:#fff}
+  .brand p{margin:0;opacity:0.95;font-size:14px;color:#f3f6f8}
+
+  main.container{max-width:1500px;margin:12px auto;padding:12px;display:block}
+
+  .layout{display:grid;grid-template-columns:300px 1.5fr 380px;gap:14px;align-items:start}
+  @media(max-width:1100px){ .layout{grid-template-columns:1fr} .top3-box{position:static;margin-top:12px} }
+
+  .sidebar{background:var(--panel-bg);border-radius:8px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
+  .sidebar h3{margin:4px 0 10px;color:var(--accent)}
+  .filter-group{margin-bottom:12px}
+  .filter-group label{display:block;font-weight:600;margin-bottom:6px;font-size:13px;color:var(--accent)}
+  .checkbox-list{display:flex;flex-direction:column;gap:6px}
+  .checkbox-list label{font-size:14px;color:#222}
+  .small{font-size:13px;color:var(--muted)}
+  .range-row{display:flex;gap:8px;align-items:center}
+  input[type="range"]{width:100%}
+
+  .btn{
+    display:inline-block;padding:9px 12px;border-radius:8px;border:1px solid #000;background:linear-gradient(180deg,#000 0%, var(--light-mid) 50%, #000 100%);
+    color:#111;font-weight:700;cursor:pointer;box-shadow:0 6px 14px rgba(0,0,0,0.08)
+  }
+  .btn.secondary{
+    display:inline-block;padding:8px 10px;border-radius:8px;border:1px solid #000;background:linear-gradient(180deg,#111 0%, #efefef 50%, #111 100%);
+    color:#111;font-weight:600;cursor:pointer;
+  }
+  .btn:active{transform:translateY(1px)}
+
+  .map-card{position:relative;border-radius:8px;overflow:hidden;border:1px solid #e6eaee;background:#fff;box-shadow:0 8px 26px rgba(11,107,79,0.06)}
+  #map{width:100%;height:640px;display:block}
+
+  .panel{background:var(--panel-bg);border-radius:8px;padding:12px;box-shadow:0 6px 18px rgba(0,0,0,0.05)}
+  .panel h3{margin:6px 0;color:var(--accent)}
+  .district-row{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:6px;border:1px solid #f0f0f0;margin-bottom:8px;background:#fff;cursor:pointer}
+  .district-row:hover{background:#f8fff9}
+  .district-name{font-weight:700}
+  .district-meta{font-size:13px;color:var(--muted)}
+  .bar{height:8px;border-radius:6px;background:#eee;overflow:hidden;margin-top:6px}
+  .bar .fill{height:100%;background:linear-gradient(90deg,#111 0%, #666 100%);width:50%}
+
+  .stats-table{width:100%;border-collapse:collapse;margin-top:10px}
+  .stats-table th, .stats-table td{padding:6px;border-bottom:1px solid #f0f0f0;font-size:13px;text-align:left}
+  .stats-table th{background:#fafafa;font-weight:700}
+
+  .top3-box{position:fixed;right:18px;bottom:18px;z-index:999;min-width:240px;background:var(--glass);backdrop-filter:blur(6px);border-radius:10px;padding:10px;border:1px solid rgba(0,0,0,0.06);box-shadow:0 10px 30px rgba(0,0,0,0.08)}
+  .top3-box h4{margin:0 0 6px;font-size:15px;color:#111}
+  .top3-item{display:flex;justify-content:space-between;align-items:center;padding:6px;border-radius:6px;cursor:pointer}
+  .top3-item:hover{background:#fff}
+
+  .status{font-size:13px;color:var(--muted);margin-top:8px}
+  footer{max-width:1200px;margin:18px auto;padding:12px;color:#666;font-size:13px;text-align:center}
+
+  /* small toggle (0.75) positioned under layer control */
+  .map-toggle {
+    position: absolute;
+    top: 56px;
+    right: 12px;
+    z-index: 1200;
+    width: 69px;
+    height: 32px;
+    border-radius: 20px;
+    background: #e6e6e6;
+    display: flex;
+    align-items: center;
+    padding: 4px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    cursor: pointer;
+    transition: background-color .25s ease, box-shadow .2s ease;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .map-toggle.on { background: #eaffec; }
+  .map-toggle.off { background: #f0f0f0; }
+
+  .map-toggle .knob {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #9be6a3;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.18);
+    transition: transform .25s cubic-bezier(.2,.9,.2,1), background-color .25s ease;
+    transform: translateX(0);
+  }
+  .map-toggle.on .knob { transform: translateX(34px); background: #9be6a3; }
+  .map-toggle.off .knob { transform: translateX(0); background: #bdbdbd; }
+
+  .map-card .leaflet-control-layers { position:absolute; top:12px; right:12px; z-index:1199; background:#fff; border-radius:8px; padding:6px; box-shadow:0 8px 20px rgba(0,0,0,0.12); }
+
+  /* Range styles (center is neutral) */
+  input[type="range"]{
+    -webkit-appearance: none; appearance: none; height: 8px; background:#e6e6e6; border-radius:999px; outline:none;
+  }
+  input[type="range"]::-webkit-slider-runnable-track{height:8px;background:#e6e6e6;border-radius:999px;}
+  input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;margin-top:-8px;width:18px;height:18px;border-radius:50%;background:#9e9e9e;box-shadow:0 2px 6px rgba(0,0,0,0.18);border:2px solid #f3f3f3;cursor:pointer;}
+  input[type="range"]::-moz-range-track{height:8px;background:#e6e6e6;border-radius:999px;}
+  input[type="range"]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#9e9e9e;border:2px solid #f3f3f3;box-shadow:0 2px 6px rgba(0,0,0,0.18);cursor:pointer;}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>БЕТОН</h1>
+    <p>Інтерактивна мапа: де в Києві найкраще купити житло — критерії, рейтинги, статистика</p>
+  </div>
+</header>
+
+<main class="container">
+  <div class="layout">
+
+    <!-- LEFT: filters -->
+    <aside class="sidebar" id="filters">
+      <h3>Фільтри</h3>
+
+      <div class="filter-group">
+        <label for="filter_type">Тип житла</label>
+        <select id="filter_type" style="width:100%;padding:8px;border-radius:8px;border:1px solid #e6eaee">
+          <option value="">Будь-який</option>
+          <option value="apartment">Квартира</option>
+          <option value="studio">Студія</option>
+          <option value="house">Будинок</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter_price">Ціна (макс), грн/м²</label>
+        <div class="range-row">
+          <input id="filter_price" type="number" placeholder="Наприклад 40000" style="padding:8px;border-radius:8px;border:1px solid #e6eaee;width:120px" />
+          <button class="btn secondary" id="price_reset" type="button">Скинути</button>
+        </div>
+        <div class="small" style="margin-top:6px">Вкажи ліміт ціни на квадратний метр</div>
+      </div>
+
+      <div class="filter-group">
+        <label>Інфраструктура (відмітьте потрібне)</label>
+        <div class="checkbox-list" id="criteriaList">
+          <label><input id="crit_schools" type="checkbox" class="crit" data-crit="schools" /> Школи, ліцеї</label>
+          <label><input id="crit_kindergartens" type="checkbox" class="crit" data-crit="kindergartens" /> Дитсадки</label>
+          <label><input id="crit_universities" type="checkbox" class="crit" data-crit="universities" /> Університети</label>
+          <label><input id="crit_metro" type="checkbox" class="crit" data-crit="metro" /> Метро / вокзали</label>
+          <label><input id="crit_parks" type="checkbox" class="crit" data-crit="parks" /> Парки та зони відпочинку</label>
+          <label><input id="crit_dog" type="checkbox" class="crit" data-crit="dogparks" /> Місця для вигулу собак</label>
+          <label><input id="crit_health" type="checkbox" class="crit" data-crit="health" /> Лікарні та аптеки</label>
+          <label><input id="crit_offices" type="checkbox" class="crit" data-crit="offices" /> Офіси / робочі місця</label>
+          <label><input id="crit_supermarkets" type="checkbox" class="crit" data-crit="supermarkets" /> Супермаркети / магазини</label>
+          <label><input id="crit_parking" type="checkbox" class="crit" data-crit="parking" /> Парковки, стоянки</label>
+          <label><input id="crit_bus" type="checkbox" class="crit" data-crit="bus" /> Автобусні зупинки / станції</label>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label>Вага критеріїв</label>
+        <div class="small">Транспорт</div><input id="w_transport" type="range" min="0" max="100" value="50" />
+        <div class="small">Інфраструктура</div><input id="w_infra" type="range" min="0" max="100" value="50" />
+        <div class="small">Безпека</div><input id="w_safety" type="range" min="0" max="100" value="50" />
+        <div class="small">Шум (мінімізувати)</div><input id="w_noise" type="range" min="0" max="100" value="50" />
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:space-between;margin-top:8px">
+        <button class="btn" id="applyFilters" type="button">Показати результати</button>
+        <button class="btn secondary" id="resetFilters" type="button">Скинути</button>
+      </div>
+
+      <hr style="margin:12px 0" />
+
+      <div class="small status" id="fileStatus">Файли (райони/точки) підвантажуються з папки <code>assets/</code> або GitHub.</div>
+    </aside>
+
+    <!-- CENTER: MAP -->
+    <section>
+      <div class="map-card">
+        <div id="map" aria-label="Карта районів Києва"></div>
+
+        <!-- small toggle to hide/show markers (visual control) -->
+        <div id="markerToggle" class="map-toggle on" title="Показ/сховати всі маркери">
+          <div class="knob"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;background:#fff;padding:12px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.04)">
+        <h3 style="margin:0 0 8px;color:var(--accent)">Таблиця статистики по районам</h3>
+        <div style="overflow:auto">
+          <table class="stats-table" id="statsTable" style="width:100%">
+            <thead>
+              <tr><th>Район</th><th>Населення</th><th>Шкіл</th><th>Садків</th><th>Метро</th><th>Робочих місць</th><th>Середня ціна, грн/м²</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: list -->
+    <aside class="panel" id="rightPanel">
+      <h3>Райони (в порядку релевантності)</h3>
+      <div id="districtList"></div>
+      <hr style="margin:12px 0" />
+      <div>
+        <h4 style="margin:0 0 6px">Пояснення рейтингу</h4>
+        <div class="small">Рейтинг розраховується за вагами ліворуч. Шум враховується негативно. Топ формується після натискання "Показати результати".</div>
+      </div>
+    </aside>
+
+  </div>
+</main>
+
+<!-- FLOATING TOP-3 -->
+<div class="top3-box" id="top3Box" aria-live="polite">
+  <h4>ТОП-3 районів</h4>
+  <div id="top3List"><!-- початково пусто (немає топу) --></div>
+</div>
+
+<footer>© <span id="year"></span> БЕТОН — демо.</footer>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<script>
+/* =========================
+   REWRITTEN JS: логіка мапи, критеріїв та адаптивний рейтинг
+   ========================= */
+
+document.addEventListener('DOMContentLoaded', () => {
+  // paths
+  const defaultDistrictsPath = 'assets/kyiv_districts.geojson';
+  const defaultPointsPathLocal = 'assets/points.geojson';
+  const remotePointsURL = 'https://raw.githubusercontent.com/Sad-Say/beton/2c3f4fc3b908862a24d16e991dbba78d6628f33a/points.geojson';
+
+  // map init
+  const map = L.map('map',{preferCanvas:true}).setView([50.45,30.52], 11);
+  const basePositron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{ attribution:'&copy; OSM & CartoDB', maxZoom:19 });
+  const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap contributors', maxZoom:19 });
+  basePositron.addTo(map);
+
+  // base maps control (ONLY base maps - no overlays for point types)
+  const layerControl = L.control.layers({"Positron": basePositron, "OSM": baseOSM}, {}, {collapsed:false});
+  layerControl.addTo(map);
+
+  // move layer control into map-card
+  (function moveLayerControlIntoMapCard(){
+    try {
+      const container = layerControl._container || (layerControl.getContainer && layerControl.getContainer());
+      if (container) {
+        const mapCard = document.querySelector('.map-card');
+        mapCard.appendChild(container);
+        container.style.position = 'absolute';
+        container.style.top = '12px';
+        container.style.right = '12px';
+        container.style.zIndex = 1199;
+      }
+    } catch(e){ console.warn('Move layer control failed', e); }
+  })();
+
+  setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
+
+  // small helper: create letter icon for point types
+  function makeLetterIcon(letter, color){
+    const svg = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'><circle cx='18' cy='14' r='12' fill='${color}' /><text x='18' y='18.5' font-size='14' fill='#fff' font-weight='700' text-anchor='middle' alignment-baseline='middle'>${letter}</text></svg>`);
+    return L.icon({ iconUrl: 'data:image/svg+xml;utf8,'+svg, iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-28] });
+  }
+
+  // what types we care about and their letter + color
+  const typeMap = {
+    school: ['S','#1f8ef1'], kindergarten: ['K','#f39c12'], university: ['U','#9b59b6'],
+    metro: ['M','#e74c3c'], park: ['P','#2ecc71'], recreation_ground: ['R','#27ae60'],
+    hospital: ['H','#c0392b'], clinic: ['H','#c0392b'], pharmacy: ['A','#16a085'],
+    office: ['W','#34495e'], supermarket: ['S','#d35400'], shop: ['S','#d35400'],
+    parking: ['P','#7f8c8d'], bus_stop: ['B','#2c3e50'], dog_park: ['D','#e67e22'],
+    other: ['?','#777']
+  };
+
+  // detect type from feature properties (heuristic)
+  function detectTypeFromFeature(f){
+    const p = f.properties || {};
+    const amenity = (p.amenity||'').toString().toLowerCase();
+    const leisure = (p.leisure||'').toString().toLowerCase();
+    const shop = (p.shop||'').toString().toLowerCase();
+    const office = (p.office||'').toString().toLowerCase();
+    const railway = (p.railway||'').toString().toLowerCase();
+    const public_transport = (p.public_transport||'').toString().toLowerCase();
+    const type_tag = (p.type || p.type_tag || '').toString().toLowerCase();
+
+    if (amenity === 'school') return 'school';
+    if (amenity === 'kindergarten') return 'kindergarten';
+    if (amenity === 'university') return 'university';
+    if (amenity === 'hospital' || amenity === 'clinic' || amenity === 'healthcare') return 'hospital';
+    if (amenity === 'pharmacy') return 'pharmacy';
+    if (amenity === 'parking') return 'parking';
+    if (amenity === 'bus_station' || amenity === 'bus_stop') return 'bus_stop';
+    if (shop === 'supermarket' || shop === 'convenience') return 'supermarket';
+    if (office) return 'office';
+    if (leisure === 'park') return 'park';
+    if (leisure === 'recreation_ground') return 'recreation_ground';
+    if (leisure === 'dog_park') return 'dog_park';
+    if (railway === 'station' || public_transport === 'station' || type_tag.indexOf('station')!==-1) return 'metro';
+    if (type_tag && typeMap[type_tag]) return type_tag;
+    return 'other';
+  }
+
+  // criteria => point types mapping
+  const criteriaToTypes = {
+    schools: ['school'],
+    kindergartens: ['kindergarten'],
+    universities: ['university'],
+    metro: ['metro'],
+    parks: ['park','recreation_ground'],
+    dogparks: ['dog_park'],
+    health: ['hospital','clinic','pharmacy'],
+    offices: ['office'],
+    supermarkets: ['supermarket','shop'],
+    parking: ['parking'],
+    bus: ['bus_stop']
+  };
+
+  // app state
+  const state = {
+    districtsGeo: null,
+    pointsGeo: null,
+    districtLayers: {},
+    typeLayers: {},      // mapping type -> LayerGroup (markers)
+    districtStats: {},   // aggregated counts per district
+    markersEnabled: true
+  };
+
+  // simple fetcher
+  async function tryFetchJSON(path){
+    try {
+      const r = await fetch(path);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } catch(e){
+      return null;
+    }
+  }
+
+  // load functions
+  async function loadDistricts(){ return await tryFetchJSON(defaultDistrictsPath); }
+  async function loadPoints(){ let g = await tryFetchJSON(defaultPointsPathLocal); if (g) return g; return await tryFetchJSON(remotePointsURL); }
+
+  // draw districts polygons
+  function clearDistrictLayers(){
+    Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} });
+    state.districtLayers = {};
+  }
+  function drawDistricts(geo){
+    clearDistrictLayers();
+    if (!geo || !geo.features) return;
+    const gj = L.geoJSON(geo, {
+      style: f => ({color:'#666', weight:1, fillColor:'#f7f9f8', fillOpacity:0.45}),
+      onEachFeature: (feature, layer) => {
+        const props = feature.properties || {};
+        const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
+        const displayName = props.name || props.NAME || props.ADM2_EN || id;
+        state.districtLayers[id] = layer;
+        layer.bindTooltip(`<strong>${displayName}</strong>`, {sticky:true});
+        layer.on('click', ()=> {
+          map.fitBounds(layer.getBounds(), {maxZoom:13});
+          const stats = state.districtStats[id] || {};
+          L.popup({maxWidth:320}).setLatLng(layer.getBounds().getCenter()).setContent(
+            `<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html" target="_blank">Детальніше →</a>`
+          ).openOn(map);
+        });
+      }
+    }).addTo(map);
+    try{ map.fitBounds(gj.getBounds().pad(0.12)); }catch(e){}
+  }
+
+  // build marker groups from points geojson
+  function clearTypeLayers(){
+    Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} });
+    state.typeLayers = {};
+  }
+  function buildTypeLayers(pointsGeo){
+    clearTypeLayers();
+    if (!pointsGeo || !pointsGeo.features) return;
+    pointsGeo.features.forEach(f=>{
+      const t = detectTypeFromFeature(f);
+      if (!state.typeLayers[t]) state.typeLayers[t] = L.layerGroup();
+      const coords = (f.geometry && f.geometry.coordinates) || [];
+      if (!coords || coords.length < 2) return;
+      const [lng,lat] = coords;
+      const metaName = (f.properties && (f.properties.name || f.properties.display_name || f.properties.NAME)) || '';
+      const letter = (typeMap[t] && typeMap[t][0]) || (t[0]||'?').toUpperCase();
+      const color = (typeMap[t] && typeMap[t][1]) || '#777';
+      const icon = makeLetterIcon(letter, color);
+      const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${metaName||t}</b><br/><small>${t}</small>`);
+      state.typeLayers[t].addLayer(m);
+    });
+    // DON'T add overlays to layerControl — points are toggled only via criteria
+    // do NOT auto-add any type layers to map; visibility controlled by updateMarkersVisibility()
+    updateMarkersVisibility();
+  }
+
+  // compute district aggregation by point types using turf booleanPointInPolygon
+  function computeDistrictStats(pointsGeo, districtsGeo){
+    state.districtStats = {};
+    if (!pointsGeo || !districtsGeo) return;
+    const districts = districtsGeo.features;
+    districts.forEach(d=>{
+      const props = d.properties || {};
+      const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
+      state.districtStats[id] = state.districtStats[id] || {};
+    });
+    pointsGeo.features.forEach(p=>{
+      try {
+        const pt = turf.point(p.geometry.coordinates);
+        for (const d of districts){
+          const props = d.properties || {};
+          const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
+          if (!id) continue;
+          if (turf.booleanPointInPolygon(pt, d)){
+            const t = detectTypeFromFeature(p);
+            state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
+            state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
+            break; // point counted once
+          }
+        }
+      } catch(e){
+        // ignore geometry errors
+      }
+    });
+  }
+
+  // UI renderers
+  function renderStatsTable(districtsGeo){
+    const tbody = document.querySelector('#statsTable tbody'); if(!tbody) return; tbody.innerHTML='';
+    const features = (districtsGeo && districtsGeo.features) || [];
+    features.forEach(f=>{
+      const props = f.properties || {};
+      const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
+      const name = props.name || props.NAME || props.ADM2_EN || id;
+      const stats = state.districtStats[id] || {};
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><a href="districts/${id}.html">${name}</a></td>
+        <td>${(props.population||props.POP||props.pop||0).toLocaleString()}</td>
+        <td>${(stats.school||0)}</td>
+        <td>${(stats.kindergarten||0)}</td>
+        <td>${(stats.metro||0)}</td>
+        <td>${(stats.office||0)+(stats.supermarket||0)}</td>
+        <td>${(props.price_avg||'—')}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderTop3(sortedTop){
+    const container = document.getElementById('top3List'); if(!container) return; container.innerHTML='';
+    if (!sortedTop || sortedTop.length===0) {
+      // leave empty (user asked: no top in initial/reset state)
+      return;
+    }
+    sortedTop.forEach((d,i)=>{
+      const el = document.createElement('div'); el.className='top3-item';
+      el.innerHTML = `<div><strong>${i+1}. ${d.name}</strong><div class="small">Комфорт ${d.comfort}/10 · ${ (d.price_avg||0).toLocaleString() } грн/м²</div></div>
+                      <div><button class="btn secondary" data-id="${d.id}">Відкрити</button></div>`;
+      el.addEventListener('click', ()=> openDistrictPage(d.id));
+      container.appendChild(el);
+    });
+  }
+
+  function renderDistrictListSorted(districtsGeo, showTop=true){
+    const container = document.getElementById('districtList'); if(!container) return; container.innerHTML='';
+    const features = (districtsGeo && districtsGeo.features) || [];
+    const arr = features.map(f=>{
+      const props = f.properties||{};
+      const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name)+'';
+      const d = {
+        id,
+        name: props.name||props.NAME||props.ADM2_EN||id,
+        population: props.population||0,
+        price_avg: props.price_avg||0,
+        schools: (state.districtStats[id] && state.districtStats[id].school) || 0,
+        kindergartens: (state.districtStats[id] && state.districtStats[id].kindergarten) || 0,
+        metro: (state.districtStats[id] && state.districtStats[id].metro) || 0,
+        jobs: (state.districtStats[id] && (state.districtStats[id].office||0)) || 0,
+        comfort: (props.comfort !== undefined) ? props.comfort : 1
+      };
+      return d;
+    });
+    // sort by comfort desc (comfort already computed by computeComfortAndRefresh)
+    const sorted = arr.sort((a,b)=>b.comfort - a.comfort);
+    // render top3 if requested AND at least one criterion active
+    const activeCriteria = getActiveCriteriaSet();
+    if (activeCriteria.size > 0) {
+      renderTop3(sorted.slice(0,3));
+    } else {
+      renderTop3([]); // clear top
+    }
+    sorted.forEach(d=>{
+      const el = document.createElement('div'); el.className='district-row';
+      el.innerHTML = `<div><div class="district-name">${d.name}</div>
+        <div class="district-meta small">Комфорт: <strong>${d.comfort}/10</strong> · ${d.schools} шкіл · ${d.kindergartens} садків</div>
+        <div class="bar"><div class="fill" style="width:${d.comfort*10}%"></div></div></div>
+        <div style="text-align:right">
+          <div class="small">${(d.price_avg||0).toLocaleString()} грн/м²</div>
+          <div style="margin-top:6px"><button class="btn secondary" onclick="openDistrictPage('${d.id}')">Детальніше</button></div>
+        </div>`;
+      el.addEventListener('click', ()=>{ focusDistrict(d.id); showDistrictDetail(d.id); });
+      container.appendChild(el);
+    });
+  }
+
+  function focusDistrict(id){ const layer = state.districtLayers[id]; if(!layer) return; map.fitBounds(layer.getBounds(), {maxZoom:13}); }
+  function showDistrictDetail(id){
+    const layer = state.districtLayers[id]; const props = (layer && layer.feature && layer.feature.properties) || {};
+    const displayName = props.name || props.NAME || id; const stats = state.districtStats[id] || {};
+    if (layer){ const center = layer.getBounds().getCenter(); L.popup({maxWidth:300}).setLatLng(center).setContent(`<strong>${displayName}</strong><br/>Школи: ${stats.school||0} · Садки: ${stats.kindergarten||0}<br/><a href="districts/${id}.html">Детальніше →</a>`).openOn(map); }
   }
   function openDistrictPage(id){ if(!id) return; window.open(`districts/${id}.html`,'_blank'); }
   window.openDistrictPage = openDistrictPage;
 
-  // main load flow
+  // -- MARKERS VISIBILITY: show only types that match active criteria
+  function getActiveCriteriaSet(){
+    const set = new Set();
+    document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
+    return set;
+  }
+
+  function updateMarkersVisibility(){
+    if (!state.markersEnabled) {
+      Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
+      return;
+    }
+    const active = getActiveCriteriaSet();
+    const allowed = new Set();
+    active.forEach(cr=>{
+      const types = criteriaToTypes[cr] || [];
+      types.forEach(tt=>allowed.add(tt.toLowerCase()));
+    });
+    if (allowed.size === 0){
+      // no criteria -> hide all markers
+      Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
+      return;
+    }
+    // show only those types that are in allowed
+    Object.keys(state.typeLayers).forEach(t=>{
+      const layer = state.typeLayers[t];
+      let show = false;
+      for (const a of allowed){
+        if (t === a || t.indexOf(a)!==-1 || a.indexOf(t)!==-1){ show = true; break; }
+      }
+      if (show){
+        if (!map.hasLayer(layer)) layer.addTo(map);
+      } else {
+        if (map.hasLayer(layer)) map.removeLayer(layer);
+      }
+    });
+  }
+
+  // calculate comfort (adaptive formula) and refresh map + lists
+  function computeComfortAndRefresh(){
+    if (!state.districtsGeo) return;
+    // get multipliers from sliders: map 0..100 -> multiplier 0..2 (center 50 = 1)
+    function multiplierFromSlider(v){
+      const val = parseInt(v||50,10);
+      return 1 + ((val - 50) / 50); // 0..2
+    }
+    const mw_transport = multiplierFromSlider(document.getElementById('w_transport').value);
+    const mw_infra = multiplierFromSlider(document.getElementById('w_infra').value);
+    const mw_safety = multiplierFromSlider(document.getElementById('w_safety').value);
+    const mw_noise = multiplierFromSlider(document.getElementById('w_noise').value);
+    const totalW = mw_transport + mw_infra + mw_safety + mw_noise || 1;
+
+    // active criteria set (we'll only show top if some criteria are selected)
+    const activeCrit = getActiveCriteriaSet();
+
+    state.districtsGeo.features.forEach(f=>{
+      const props = f.properties || {};
+      const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
+      const stats = state.districtStats[id] || {};
+
+      // sub-scores normalized 0..10 (tweakable)
+      const transportScore = Math.min(10, (stats.metro||0) * 2); // stations count
+      const infraScore = Math.min(10, ((stats.school||0) * 0.6 + (stats.kindergarten||0)*0.4 + (stats.university||0)*1.0));
+      const safetyScore = Math.min(10, ((stats.office||0) + (stats.supermarket||0)) / 200); // rough proxy
+      const noiseScore = 5; // placeholder for now
+
+      // weighted average with multipliers; noise is inverted (less noise -> good)
+      const raw = (transportScore * mw_transport + infraScore * mw_infra + safetyScore * mw_safety + (10 - noiseScore) * mw_noise) / totalW;
+
+      // scale raw to 1..10
+      let comfort = Math.round(Math.max(1, Math.min(10, raw)));
+
+      // price penalty if price filter is set
+      const priceLimit = parseInt(document.getElementById('filter_price').value || 0,10) || 0;
+      if (priceLimit && props.price_avg && props.price_avg > priceLimit) comfort = Math.max(1, comfort - 2);
+
+      // if no criteria selected, we intentionally do not produce a top: but still keep comfort computed (for later)
+      props.comfort = comfort;
+
+      // update polygon color by comfort
+      const layer = state.districtLayers[id];
+      if (layer){
+        const c = props.comfort || 1;
+        const color = c>=9? '#005a32': c>=7? '#2ca02c': c>=5? '#ffce73': c>=3? '#ff8c42':'#c73a00';
+        layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)});
+      }
+    });
+
+    // update table & list
+    renderStatsTable(state.districtsGeo);
+    renderDistrictListSorted(state.districtsGeo);
+    // renderTop3 is handled inside renderDistrictListSorted (depends on active criteria)
+  }
+
+  // helper: shade color
+  function shadeColor(color, percent){
+    try {
+      const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent;
+      const R=f>>16, G=f>>8&0x00FF, B=f&0x0000FF;
+      const newR=Math.round((t-R)*p/100)+R;
+      const newG=Math.round((t-G)*p/100)+G;
+      const newB=Math.round((t-B)*p/100)+B;
+      return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1);
+    } catch(e){ return color; }
+  }
+
+  // initial load flow
   async function mainLoad(){
     document.getElementById('fileStatus').textContent = 'Завантаження (assets/ та GitHub raw)...';
     const [districtsGeo, pointsGeoLocal] = await Promise.all([tryFetchJSON(defaultDistrictsPath), tryFetchJSON(defaultPointsPathLocal)]);
     let pointsGeo = pointsGeoLocal;
     if (!pointsGeo) pointsGeo = await tryFetchJSON(remotePointsURL);
-    if (!districtsGeo) { document.getElementById('fileStatus').textContent = 'Не знайдено локального файлу районів (assets/kyiv_districts.geojson). Натисни Load districts.'; }
-    else { state.districtsGeo = districtsGeo; drawDistricts(districtsGeo); }
-    if (!pointsGeo) { document.getElementById('fileStatus').textContent += ' Не знайдено points.geojson (assets або GitHub raw).'; }
-    else { state.pointsGeo = pointsGeo; buildTypeLayers(pointsGeo); }
+
+    if (!districtsGeo) {
+      document.getElementById('fileStatus').textContent = 'Не знайдено локального файлу районів (assets/kyiv_districts.geojson). Завантаж файл у папку assets/ або додай raw URL у код.';
+    } else {
+      state.districtsGeo = districtsGeo;
+      drawDistricts(districtsGeo);
+    }
+    if (!pointsGeo) {
+      document.getElementById('fileStatus').textContent += ' Не знайдено points.geojson (assets або GitHub raw).';
+    } else {
+      state.pointsGeo = pointsGeo;
+      buildTypeLayers(pointsGeo);
+    }
     if (state.districtsGeo && state.pointsGeo){
       computeDistrictStats(state.pointsGeo, state.districtsGeo);
       renderStatsTable(state.districtsGeo);
-      renderDistrictListSorted(state.districtsGeo);
-      document.getElementById('fileStatus').textContent = 'Готово — використай фільтри, щоб показувати потрібні маркери.';
+      // do NOT show top initially (user requested no top in initial position)
+      renderDistrictListSorted(state.districtsGeo); // this will leave top empty unless criteria selected
+      document.getElementById('fileStatus').textContent = 'Готово — вибери критерії та натисни "Показати результати".';
     }
   }
   mainLoad();
 
-  // district file input
-  document.getElementById('btnLoadDistrict').addEventListener('click', async ()=>{
-    const f = document.getElementById('fileDistricts').files[0];
-    if (!f){ alert('Оберіть файл з районами (GeoJSON)'); return; }
-    document.getElementById('fileStatus').textContent = 'Завантаження районів з локального файлу...';
-    const txt = await f.text();
-    try { state.districtsGeo = JSON.parse(txt); drawDistricts(state.districtsGeo); computeDistrictStats(state.pointsGeo, state.districtsGeo); renderStatsTable(state.districtsGeo); renderDistrictListSorted(state.districtsGeo); document.getElementById('fileStatus').textContent = 'Райони завантажені.'; }
-    catch(e){ alert('Некоректний GeoJSON районів'); console.error(e); document.getElementById('fileStatus').textContent = 'Помилка при читанні файлу районів.'; }
+  // event wiring
+  document.getElementById('applyFilters').addEventListener('click', ()=>{
+    computeComfortAndRefresh();
+    updateMarkersVisibility();
   });
 
-  // filters to marker behavior
-  document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> updateMarkersVisibility()));
+  document.getElementById('resetFilters').addEventListener('click', ()=>{
+    // clear criteria
+    document.querySelectorAll('.crit').forEach(cb=>cb.checked=false);
+    document.getElementById('filter_price').value='';
+    document.getElementById('w_transport').value=50;
+    document.getElementById('w_infra').value=50;
+    document.getElementById('w_safety').value=50;
+    document.getElementById('w_noise').value=50;
 
-  function computeComfortAndRefresh(){
-    if (!state.districtsGeo) return;
-    state.districtsGeo.features.forEach(f=>{
-      const props = f.properties || {};
-      const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name)+'';
-      const stats = state.districtStats[id] || {};
-      const transportScore = Math.min(10, (stats.metro||0)*2);
-      const infraScore = Math.min(10, ((stats.school||0)+(stats.kindergarten||0))*0.2);
-      const safetyScore = Math.min(10, ((stats.office||0)||0)/5);
-      const noiseScore = 5;
-      const weights = { transport: parseInt(document.getElementById('w_transport').value,10)||0, infra: parseInt(document.getElementById('w_infra').value,10)||0, safety: parseInt(document.getElementById('w_safety').value,10)||0, noise: parseInt(document.getElementById('w_noise').value,10)||0 };
-      const totalW = (weights.transport+weights.infra+weights.safety+weights.noise) || 1;
-      const raw = (transportScore*weights.transport + infraScore*weights.infra + safetyScore*weights.safety + (10-noiseScore)*weights.noise)/totalW;
-      let comfort = Math.round(raw);
-      const priceLimit = parseInt(document.getElementById('filter_price').value||0,10) || 0;
-      if (priceLimit && props.price_avg && props.price_avg > priceLimit) comfort = Math.max(1, comfort-2);
-      props.comfort = Math.max(1, Math.min(10, comfort));
-      const layer = state.districtLayers[id];
-      if (layer){ const c = props.comfort || 1; const color = c>=9? '#005a32': c>=7? '#2ca02c': c>=5? '#ffce73': c>=3? '#ff8c42':'#c73a00'; layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)}); }
-    });
-    renderStatsTable(state.districtsGeo);
-    renderDistrictListSorted(state.districtsGeo);
-  }
-  document.getElementById('applyFilters').addEventListener('click', ()=>{ computeComfortAndRefresh(); updateMarkersVisibility(); });
+    // clear top3
+    document.getElementById('top3List').innerHTML = ''; // initial state: no top
+    // recompute comfort neutral (will recolor polygons according to neutral multipliers)
+    computeComfortAndRefresh();
+    // hide markers because no criteria selected
+    updateMarkersVisibility();
+  });
 
-  document.getElementById('resetFilters').addEventListener('click', ()=>{ document.querySelectorAll('.crit').forEach(cb=>cb.checked=false); document.getElementById('filter_price').value=''; document.getElementById('w_transport').value=50; document.getElementById('w_infra').value=50; document.getElementById('w_safety').value=50; document.getElementById('w_noise').value=50; computeComfortAndRefresh(); updateMarkersVisibility(); });
   document.getElementById('price_reset').addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
 
-  // toggle logic
+  // when user toggles criteria, update markers visibility (but top will only be generated after clicking Apply)
+  document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> {
+    updateMarkersVisibility();
+  }));
+
+  // marker toggle button (global hide/show)
   const toggle = document.getElementById('markerToggle');
   function setToggleVisual(on){ if (on){ toggle.classList.add('on'); toggle.classList.remove('off'); } else { toggle.classList.remove('on'); toggle.classList.add('off'); } }
   setToggleVisual(state.markersEnabled);
   toggle.addEventListener('click', ()=>{ state.markersEnabled = !state.markersEnabled; setToggleVisual(state.markersEnabled); updateMarkersVisibility(); });
 
-  // shade color util
-  function shadeColor(color, percent){
-    try { const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent; const R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF; const newR=Math.round((t-R)*p/100)+R; const newG=Math.round((t-G)*p/100)+G; const newB=Math.round((t-B)*p/100)+B; return "#" + (0x1000000 + (newR<<16) + (newG<<8) + newB).toString(16).slice(1); } catch(e){ return color; }
-  }
-
-  // expose for debug
-  window._BETON = Object.assign(window._BETON||{}, { state, updateMarkersVisibility, computeDistrictStats, buildTypeLayers });
+  // expose for debugging
+  window._BETON = Object.assign(window._BETON||{}, { state, updateMarkersVisibility, computeDistrictStats, buildTypeLayers, computeComfortAndRefresh });
 
   document.getElementById('year').textContent = new Date().getFullYear();
 }); // DOMContentLoaded
 </script>
 </body>
-</html>
+          </html>
