@@ -256,11 +256,7 @@
 
 <script>
 /* =========================
-   ADAPTIVE SCORING CORE (FINAL FORMULA)
-   - per-criterion times normalization
-   - groups: infra / transport (multipliers)
-   - env: safety / noise / air (external JSONs)
-   - Housing & Price optional
+   ADAPTIVE SCORING CORE (with filtering of outside points)
    ========================= */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -391,7 +387,6 @@ document.addEventListener('DOMContentLoaded', () => {
     state.envData.safety = s;
     state.envData.noise = n;
     state.envData.air = a;
-    // no error if null — we will fallback to neutral 0.5
   }
 
   // district helpers
@@ -426,16 +421,49 @@ document.addEventListener('DOMContentLoaded', () => {
     try{ map.fitBounds(gj.getBounds().pad(0.12)); }catch(e){}
   }
 
+  // ---------- IMPORTANT: Decide whether a point lies inside ANY district ----------
+  function pointIsInAnyDistrict(pointFeature){
+    if (!state.districtsGeo || !state.districtsGeo.features) return false;
+    if (!pointFeature || !pointFeature.geometry || !pointFeature.geometry.coordinates) return false;
+    const pt = turf.point(pointFeature.geometry.coordinates);
+    // iterate districts and test
+    for (const d of state.districtsGeo.features){
+      try {
+        if (turf.booleanPointInPolygon(pt, d)) return true;
+      } catch(e){
+        // ignore geometry errors
+      }
+    }
+    return false;
+  }
+
   // build markers by type for visual layer (but don't add overlays)
   function clearTypeLayers(){
     Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} });
     state.typeLayers = {};
     state.pointsByType = {};
   }
+
+  // CHANGED: buildTypeLayers now **skips** any points that are not inside any district.
+  // If districts are not loaded yet, we intentionally do not show points at all (to avoid out-of-district noise).
   function buildTypeLayers(pointsGeo){
     clearTypeLayers();
     if (!pointsGeo || !pointsGeo.features) return;
+
+    // if we don't have district polygons yet, do not show any points (user requested behavior)
+    if (!state.districtsGeo) {
+      console.warn('Districts not loaded yet — skipping point markers (points outside districts would be ignored).');
+      return;
+    }
+
     pointsGeo.features.forEach(f=>{
+      // skip any point not inside any district (so they are neither shown nor counted)
+      try {
+        if (!pointIsInAnyDistrict(f)) return; // ← CHANGED: skip points outside districts
+      } catch(e){
+        return;
+      }
+
       const t = detectTypeFromFeature(f);
       if (!state.typeLayers[t]) state.typeLayers[t] = L.layerGroup();
       if (!state.pointsByType[t]) state.pointsByType[t] = [];
@@ -448,13 +476,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const icon = makeLetterIcon(letter, color);
       const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${metaName||t}</b><br/><small>${t}</small>`);
       state.typeLayers[t].addLayer(m);
-      // keep geojson feature for nearest calculations
+      // keep geojson feature for nearest calculations (only inside districts)
       state.pointsByType[t].push(f);
     });
     updateMarkersVisibility();
   }
 
   // compute districtStats: simple counts per type (used in many places)
+  // NOTE: computeDistrictStats already counts only points that are inside districts (booleanPointInPolygon).
   function computeDistrictStats(pointsGeo, districtsGeo){
     state.districtStats = {};
     if (!pointsGeo || !districtsGeo) return;
@@ -490,44 +519,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // For a given criterion (UI name), compute time_minutes per district for *that* criterion
   function computeTimesForCriterion(criteriaKey, districtsGeo){
-    // get underlying types for this criteria
     const types = criteriaToTypes[criteriaKey] || [];
-    const times = {}; // id -> time_minutes
+    const times = {};
     if (!districtsGeo) return times;
 
-    // precollect points of these types
+    // gather points of those types that are inside districts (we filled state.pointsByType only with inside points)
     const pts = [];
     types.forEach(t => {
       const arr = state.pointsByType[t] || [];
       for (const pf of arr) pts.push(pf);
     });
 
-    // for each district
     districtsGeo.features.forEach(d => {
       const id = getDistrictId(d);
       const stats = state.districtStats[id] || {};
-      // count points of matching types inside district using stats
       let count = 0;
       types.forEach(t => { count += (stats[t] || 0); });
 
-      const area_m2 = Math.max(1, turf.area(d)); // prevent zero
+      const area_m2 = Math.max(1, turf.area(d));
       if (count > 0) {
-        // area per point approach
         const areaPerPoint = area_m2 / count;
-        const radius_m = Math.sqrt(areaPerPoint / Math.PI); // radius corresponding to area per point
+        const radius_m = Math.sqrt(areaPerPoint / Math.PI);
         const time_minutes = (radius_m / WALK_SPEED_MPS) / 60;
         times[id] = time_minutes;
       } else {
-        // no points inside district: nearest point approach
         if (!pts || pts.length === 0) {
-          times[id] = 9999; // very large (no data)
+          times[id] = 9999;
           return;
         }
-        // compute centroid of district
         let centroid;
         try { centroid = turf.centroid(d); } catch(e){ centroid = turf.centerOfMass(d); }
         if (!centroid) { times[id] = 9999; return; }
-        // find nearest point distance (meters)
         let minDist = Infinity;
         for (const pf of pts) {
           if (!pf.geometry || !pf.geometry.coordinates) continue;
@@ -555,11 +577,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const scores = {};
     entries.forEach(([id,t])=>{
       if (!isFinite(t)) {
-        scores[id] = 0; // no data -> worst
+        scores[id] = 0;
       } else if (maxT === minT) {
         scores[id] = 1;
       } else {
-        const norm = 1 - (t - minT) / (maxT - minT); // 1 best
+        const norm = 1 - (t - minT) / (maxT - minT);
         scores[id] = Math.max(0, Math.min(1, norm));
       }
     });
@@ -567,12 +589,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------- Housing & Price helpers ----------
-  // try to extract housing counts from district properties
   function extractHousingCountsForDistrict(feature){
-    // look for common keys; return object {apartment: n, house: n, studio: n, total: n}
     const p = feature.properties || {};
     const out = { apartment: 0, house: 0, studio: 0, total: 0 };
-    // flexible detection
     const tryKeys = (regex) => {
       for (const k of Object.keys(p)) {
         if (k.toLowerCase().match(regex)) {
@@ -582,19 +601,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       return 0;
     };
-    // common direct keys
     out.apartment = tryKeys(/apart|flat|кварти/i);
     out.house = tryKeys(/house|dom|будин/i);
     out.studio = tryKeys(/studio|студ/i);
-    // total housing
     const tot = tryKeys(/total.*(housing|units)|housing.*total|units|buildings|dwellings/i);
     out.total = tot || (out.apartment + out.house + out.studio);
     return out;
   }
 
-  // compute HousingScore map (0..1 normalized)
   function computeHousingScores(districtsGeo, selectedType){
-    // selectedType: 'apartment'|'house'|'studio'|'' for overall
     if (!districtsGeo) return {};
     const raw = {};
     let foundAny = false;
@@ -611,12 +626,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (val && val > 0) foundAny = true;
     });
     if (!foundAny) {
-      // no housing data -> neutral 0.5 for all
       const neutral = {};
       districtsGeo.features.forEach(f=> neutral[getDistrictId(f)] = 0.5);
       return neutral;
     }
-    // normalize so larger -> 1
     const values = Object.values(raw);
     const minV = Math.min(...values);
     const maxV = Math.max(...values);
@@ -628,12 +641,10 @@ document.addEventListener('DOMContentLoaded', () => {
     return out;
   }
 
-  // PriceScore: if user gives desired price -> closeness better
   function computePriceScores(districtsGeo, desiredPrice){
     if (!districtsGeo || !desiredPrice) {
-      // if not provided, return zeros
       const z = {};
-      districtsGeo.features.forEach(f=> z[getDistrictId(f)] = 0);
+      if (districtsGeo && districtsGeo.features) districtsGeo.features.forEach(f=> z[getDistrictId(f)] = 0);
       return z;
     }
     const diffs = {};
@@ -651,24 +662,20 @@ document.addEventListener('DOMContentLoaded', () => {
     Object.entries(diffs).forEach(([id,d])=>{
       if (d >= 1e9) out[id] = 0;
       else if (maxD === minD) out[id] = 1;
-      else out[id] = 1 - (d - minD) / (maxD - minD); // closer -> 1
+      else out[id] = 1 - (d - minD) / (maxD - minD);
     });
     return out;
   }
 
-  // ---------- Environment scores (from external JSONs) ----------
-  // convention: safety & noise: lower raw => better; air: higher raw => better (adjust if needed)
+  // ---------- Environment scores ----------
   function computeEnvScoresMap(districtsGeo){
     const out = { safety: {}, noise: {}, air: {} };
     if (!districtsGeo) return out;
     const ids = districtsGeo.features.map(f => getDistrictId(f));
-    // helper normalizer
     const normalizeMap = (rawMap, lowerBetter=true) => {
-      // rawMap: id -> numeric (may be missing)
       const present = [];
       ids.forEach(id=> { if (rawMap && rawMap[id] !== undefined && rawMap[id] !== null && !isNaN(Number(rawMap[id]))) present.push(Number(rawMap[id])); });
       if (present.length === 0) {
-        // neutral 0.5
         const n = {}; ids.forEach(id=> n[id] = 0.5); return n;
       }
       const minV = Math.min(...present);
@@ -680,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (maxV === minV) res[id] = 1;
         else {
           let norm = (v - minV) / (maxV - minV);
-          if (lowerBetter) norm = 1 - norm; // invert
+          if (lowerBetter) norm = 1 - norm;
           res[id] = Math.max(0, Math.min(1, norm));
         }
       });
@@ -689,64 +696,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
     out.safety = normalizeMap(state.envData.safety || {}, true);
     out.noise = normalizeMap(state.envData.noise || {}, true);
-    out.air = normalizeMap(state.envData.air || {}, false); // assume air higher better (if different, change)
+    out.air = normalizeMap(state.envData.air || {}, false);
     return out;
   }
 
   // ---------- Final scoring ----------
-  // sliderWeight: center=50 => multiplier 1, range [0..100] -> [0..2]
   function sliderWeightValue(v){
     const val = Number(v || 50);
-    return 1 + (val - 50) / 50; // 0..2 where 50 -> 1
+    return 1 + (val - 50) / 50;
   }
 
   function computeFinalScoresAndApply(districtsGeo){
     if (!districtsGeo) return;
 
-    // active criteria
     const activeCriteria = getActiveCriteriaSet();
 
-    // compute per-criterion normalized scores
-    const criterionScores = {}; // crit -> {id: score}
+    const criterionScores = {};
     activeCriteria.forEach(c=>{
       const times = computeTimesForCriterion(c, districtsGeo);
       criterionScores[c] = normalizeTimesToScores(times);
     });
 
-    // group sums (sum of normalized scores across chosen criteria in that group)
-    // Housing
     const selectedHousingType = (document.getElementById('filter_type')?.value || '').toLowerCase();
     let housingTypeKey = '';
     if (selectedHousingType === 'apartment' || selectedHousingType === 'flat') housingTypeKey = 'apartment';
     else if (selectedHousingType === 'studio') housingTypeKey = 'studio';
     else if (selectedHousingType === 'house') housingTypeKey = 'house';
-    else housingTypeKey = ''; // overall
+    else housingTypeKey = '';
 
     const housingScores = computeHousingScores(districtsGeo, housingTypeKey);
 
-    // Price
     const desiredPriceRaw = Number(document.getElementById('filter_price')?.value || 0) || 0;
     const priceScores = computePriceScores(districtsGeo, desiredPriceRaw > 0 ? desiredPriceRaw : null);
 
-    // env
     const envPre = computeEnvScoresMap(districtsGeo);
-    // optionally weight env by sliders w_safety, w_noise, w_air (we will multiply into final sum)
     const w_safety = sliderWeightValue(document.getElementById('w_safety')?.value || 50);
     const w_noise = sliderWeightValue(document.getElementById('w_noise')?.value || 50);
     const w_air   = sliderWeightValue(document.getElementById('w_air')?.value || 50);
 
-    // multipliers for groups
     const mw_transport = sliderWeightValue(document.getElementById('w_transport')?.value || 50);
     const mw_infra = sliderWeightValue(document.getElementById('w_infra')?.value || 50);
 
-    // compute raw sum per district
     const rawScores = {};
     districtsGeo.features.forEach(f=>{
       const id = getDistrictId(f);
       let sumInfra = 0;
       let sumTransport = 0;
 
-      // sum over active infra criteria
       activeCriteria.forEach(c=>{
         if (infraCriteria.has(c)) {
           const s = (criterionScores[c] && criterionScores[c][id] !== undefined) ? criterionScores[c][id] : 0;
@@ -758,37 +754,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      const housing = housingScores[id] || 0; // 0..1 (or 0.5 neutral)
-      const price = priceScores[id] || 0;     // 0..1 or 0 if not provided
-
+      const housing = housingScores[id] || 0;
+      const price = priceScores[id] || 0;
       const safety = (envPre.safety && envPre.safety[id] !== undefined) ? envPre.safety[id] : 0.5;
       const noise  = (envPre.noise  && envPre.noise[id]  !== undefined) ? envPre.noise[id]  : 0.5;
       const air    = (envPre.air    && envPre.air[id]    !== undefined) ? envPre.air[id]    : 0.5;
 
-      // final raw (as user specified):
-      // HousingScore + PriceScore + (infra_sum_normalized) * infraMultiplier + (transport_sum_normalized) * transportMultiplier + Safety + Noise + Air
-      // Note: infra & transport are sums of per-criterion normalized [0..1]. They are NOT renormalized again here.
       const raw = housing + price + (sumInfra * mw_infra) + (sumTransport * mw_transport) + (safety * w_safety) + (noise * w_noise) + (air * w_air);
       rawScores[id] = Math.max(0, raw);
     });
 
-    // convert rawScores to normalized and comfort 1..10 for UI
     const vals = Object.values(rawScores);
     const minR = Math.min(...vals);
     const maxR = Math.max(...vals);
-    const finalMap = {}; // id -> {raw, normalized, comfort}
+    const finalMap = {};
     Object.entries(rawScores).forEach(([id, raw])=>{
       const norm = (maxR === minR) ? 1 : (raw - minR) / (maxR - minR);
-      const comfort = Math.round(norm * 9 + 1); // 1..10
+      const comfort = Math.round(norm * 9 + 1);
       finalMap[id] = { raw, normalized: norm, comfort };
     });
 
-    // apply to district features and style polygons by comfort
     districtsGeo.features.forEach(f=>{
       const id = getDistrictId(f);
       const entry = finalMap[id];
       if (f.properties) {
-        delete f.properties._tmp_times; // cleanup
+        delete f.properties._tmp_times;
         f.properties.finalRaw = entry ? entry.raw : 0;
         f.properties.finalNormalized = entry ? entry.normalized : 0;
         f.properties.comfort = entry ? entry.comfort : 1;
@@ -801,7 +791,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // refresh UI
     renderStatsTable(districtsGeo);
     renderDistrictListSorted(districtsGeo);
   }
@@ -813,7 +802,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return set;
   }
 
-  // markers visibility only depends on active criteria + toggle
   function updateMarkersVisibility(){
     if (!state.markersEnabled) {
       Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
@@ -843,7 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // render table/list/top3 (reuse earlier structure)
+  // render helpers (unchanged)
   function renderStatsTable(districtsGeo){
     const tbody = document.querySelector('#statsTable tbody'); if(!tbody) return; tbody.innerHTML='';
     const features = (districtsGeo && districtsGeo.features) || [];
@@ -921,7 +909,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function openDistrictPage(id){ if(!id) return; window.open(`districts/${id}.html`,'_blank'); }
   window.openDistrictPage = openDistrictPage;
 
-  // color shade util
   function shadeColor(color, percent){
     try {
       const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent;
@@ -936,8 +923,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------- main load ----------
   async function mainLoad(){
     document.getElementById('fileStatus').textContent = 'Завантаження геоданих з GitHub / assets...';
-    // load env files in background (try)
-    loadEnvFiles();
+    loadEnvFiles(); // load in background
     const [districtsGeo, pointsGeoLocal] = await Promise.all([tryFetchJSON(defaultDistrictsPath), tryFetchJSON(defaultPointsPathLocal)]);
     let pointsGeo = pointsGeoLocal;
     if (!pointsGeo) pointsGeo = await tryFetchJSON(remotePointsURL);
@@ -952,6 +938,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('fileStatus').textContent += ' Не знайдено points.geojson (assets або GitHub raw).';
     } else {
       state.pointsGeo = pointsGeo;
+      // buildTypeLayers now requires districts to filter points; only runs properly if districts exist
       buildTypeLayers(pointsGeo);
     }
     if (state.districtsGeo && state.pointsGeo){
@@ -963,7 +950,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   mainLoad();
 
-  // File input (optional district load UI may not exist)
+  // File input (districts) - CHANGED: after loading districts we rebuild type layers so only inside points remain
   document.getElementById('btnLoadDistrict')?.addEventListener('click', async ()=>{
     const f = document.getElementById('fileDistricts')?.files?.[0];
     if (!f){ alert('Оберіть файл з районами (GeoJSON)'); return; }
@@ -972,7 +959,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       state.districtsGeo = JSON.parse(txt);
       drawDistricts(state.districtsGeo);
+      // recompute stats and rebuild point layers **now that districts exist**
       computeDistrictStats(state.pointsGeo, state.districtsGeo);
+      buildTypeLayers(state.pointsGeo); // ← CHANGED: rebuild markers filtering by new districts
       renderStatsTable(state.districtsGeo);
       renderDistrictListSorted(state.districtsGeo);
       document.getElementById('fileStatus').textContent = 'Райони завантажені.';
@@ -985,8 +974,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // UI wiring
   document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> updateMarkersVisibility()));
   document.getElementById('applyFilters')?.addEventListener('click', async ()=>{
-    // try reload env files so user can drop them in between runs
     await loadEnvFiles();
+    // recompute districtStats (in case points/districts changed)
+    if (state.pointsGeo && state.districtsGeo) computeDistrictStats(state.pointsGeo, state.districtsGeo);
     computeFinalScoresAndApply(state.districtsGeo);
     updateMarkersVisibility();
   });
@@ -999,7 +989,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('w_safety').value=50;
     document.getElementById('w_noise').value=50;
     document.getElementById('w_air').value=50;
-    // remove comfort props and reset styles
     if (state.districtsGeo && state.districtsGeo.features) {
       state.districtsGeo.features.forEach(f => { if (f.properties) { delete f.properties.comfort; delete f.properties.finalRaw; delete f.properties.finalNormalized; } });
     }
@@ -1019,7 +1008,7 @@ document.addEventListener('DOMContentLoaded', () => {
   toggle.addEventListener('click', ()=>{ state.markersEnabled = !state.markersEnabled; setToggleVisual(state.markersEnabled); updateMarkersVisibility(); });
 
   // debug exposure
-  window._BETON = Object.assign(window._BETON||{}, { state, computeFinalScoresAndApply, computeTimesForCriterion, computeDistrictStats });
+  window._BETON = Object.assign(window._BETON||{}, { state, computeFinalScoresAndApply, computeTimesForCriterion, computeDistrictStats, buildTypeLayers });
 
   document.getElementById('year').textContent = new Date().getFullYear();
 }); // DOMContentLoaded
