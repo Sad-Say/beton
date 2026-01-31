@@ -86,7 +86,7 @@
     top: 56px;
     right: 12px;
     z-index: 1200;
-    width: 52px; /* ~0.75 of previous 69 */
+    width: 52px;
     height: 24px;
     border-radius: 20px;
     background: #e6e6e6;
@@ -151,12 +151,12 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter_price">Ціна (макс), грн/м²</label>
+        <label for="filter_price">Бажана ціна (грн/м²)</label>
         <div class="range-row">
           <input id="filter_price" type="number" placeholder="Наприклад 40000" style="padding:8px;border-radius:8px;border:1px solid #e6eaee;width:120px" />
           <button class="btn secondary" id="price_reset" type="button">Скинути</button>
         </div>
-        <div class="small" style="margin-top:6px">Вкажи ліміт ціни на квадратний метр</div>
+        <div class="small" style="margin-top:6px">Якщо не заповнено — PriceScore = 0</div>
       </div>
 
       <div class="filter-group">
@@ -177,11 +177,22 @@
       </div>
 
       <div class="filter-group">
-        <label>Вага критеріїв</label>
-        <div class="small">Транспорт</div><input id="w_transport" type="range" min="0" max="100" value="50" />
-        <div class="small">Інфраструктура</div><input id="w_infra" type="range" min="0" max="100" value="50" />
-        <div class="small">Безпека</div><input id="w_safety" type="range" min="0" max="100" value="50" />
-        <div class="small">Шум (мінімізувати)</div><input id="w_noise" type="range" min="0" max="100" value="50" />
+        <label>Повзунки важливості (групи)</label>
+        <div class="small">Транспорт (впливає на критерії: метро, автобус)</div>
+        <input id="w_transport" type="range" min="0" max="100" value="50" />
+        <div class="small">Інфраструктура (школи, парки, магазини, лікарні...)</div>
+        <input id="w_infra" type="range" min="0" max="100" value="50" />
+      </div>
+
+      <div class="filter-group">
+        <label>Environment (окремо)</label>
+        <div class="small">Безпека</div>
+        <input id="w_safety" type="range" min="0" max="100" value="50" />
+        <div class="small">Шум (мінімізувати)</div>
+        <input id="w_noise" type="range" min="0" max="100" value="50" />
+        <div class="small">Якість повітря</div>
+        <input id="w_air" type="range" min="0" max="100" value="50" />
+        <div class="small" style="margin-top:6px">Після: підклади assets/safety.json, assets/noise.json, assets/air.json — формат: {"districtId": numeric, ...}</div>
       </div>
 
       <div style="display:flex;gap:8px;justify-content:space-between;margin-top:8px">
@@ -225,7 +236,7 @@
       <hr style="margin:12px 0" />
       <div>
         <h4 style="margin:0 0 6px">Пояснення рейтингу</h4>
-        <div class="small">Рейтинг розраховується за вагами ліворуч. Шум враховується негативно. Топ формується після натискання "Показати результати".</div>
+        <div class="small">Рейтинг = житло + ціна + (інфраструктура × множник) + (транспорт × множник) + безпека + шум + якість повітря. Топ формується тільки коли є вибрані критерії.</div>
       </div>
     </aside>
 
@@ -245,14 +256,23 @@
 
 <script>
 /* =========================
-   REWRITTEN JS: стабільний розрахунок рейтингу, нормалізація, reset
+   ADAPTIVE SCORING CORE (FINAL FORMULA)
+   - per-criterion times normalization
+   - groups: infra / transport (multipliers)
+   - env: safety / noise / air (external JSONs)
+   - Housing & Price optional
    ========================= */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // paths (districts raw URL from your repo + points raw)
+  // raw URLs
   const defaultDistrictsPath = 'https://raw.githubusercontent.com/Sad-Say/beton/aac0ebe56eb742ba892f0cef6c5eda5dae16499c/kyiv_districts.geojson';
   const defaultPointsPathLocal = 'assets/points.geojson';
   const remotePointsURL = 'https://raw.githubusercontent.com/Sad-Say/beton/2c3f4fc3b908862a24d16e991dbba78d6628f33a/points.geojson';
+
+  // env files (optional)
+  const safetyJSON = 'assets/safety.json';
+  const noiseJSON = 'assets/noise.json';
+  const airJSON = 'assets/air.json';
 
   // map init
   const map = L.map('map',{preferCanvas:true}).setView([50.45,30.52], 11);
@@ -260,11 +280,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap contributors', maxZoom:19 });
   basePositron.addTo(map);
 
-  // base maps control (ONLY base maps - no overlays)
+  // base control
   const layerControl = L.control.layers({"Positron": basePositron, "OSM": baseOSM}, {}, {collapsed:false});
   layerControl.addTo(map);
 
-  // move layer control into map-card
   (function moveLayerControlIntoMapCard(){
     try {
       const container = layerControl._container || (layerControl.getContainer && layerControl.getContainer());
@@ -281,12 +300,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
 
-  // icon builder (letter + color)
+  // helper: letter icon
   function makeLetterIcon(letter, color){
     const svg = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'><circle cx='18' cy='14' r='12' fill='${color}' /><text x='18' y='18.5' font-size='14' fill='#fff' font-weight='700' text-anchor='middle' alignment-baseline='middle'>${letter}</text></svg>`);
     return L.icon({ iconUrl: 'data:image/svg+xml;utf8,'+svg, iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-28] });
   }
 
+  // types mapping (icon letter + color)
   const typeMap = {
     school: ['S','#1f8ef1'], kindergarten: ['K','#f39c12'], university: ['U','#9b59b6'],
     metro: ['M','#e74c3c'], park: ['P','#2ecc71'], recreation_ground: ['R','#27ae60'],
@@ -323,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'other';
   }
 
-  // map from UI criteria to types
+  // UI criteria -> types
   const criteriaToTypes = {
     schools: ['school'],
     kindergartens: ['kindergarten'],
@@ -338,6 +358,10 @@ document.addEventListener('DOMContentLoaded', () => {
     bus: ['bus_stop']
   };
 
+  // groups
+  const transportCriteria = new Set(['metro','bus']);
+  const infraCriteria = new Set(['schools','kindergartens','universities','parks','dogparks','health','supermarkets','offices','parking']);
+
   // app state
   const state = {
     districtsGeo: null,
@@ -345,7 +369,9 @@ document.addEventListener('DOMContentLoaded', () => {
     districtLayers: {},
     typeLayers: {},
     districtStats: {},
-    markersEnabled: true
+    markersEnabled: true,
+    pointsByType: {}, // for nearest calculations
+    envData: { safety: null, noise: null, air: null } // loaded external maps
   };
 
   // fetch helper
@@ -359,18 +385,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // loaders
-  async function loadDistricts(){ return await tryFetchJSON(defaultDistrictsPath); }
-  async function loadPoints(){ let g = await tryFetchJSON(defaultPointsPathLocal); if (g) return g; return await tryFetchJSON(remotePointsURL); }
+  // load optional environment JSONs (safety/noise/air)
+  async function loadEnvFiles(){
+    const [s,n,a] = await Promise.all([ tryFetchJSON(safetyJSON), tryFetchJSON(noiseJSON), tryFetchJSON(airJSON) ]);
+    state.envData.safety = s;
+    state.envData.noise = n;
+    state.envData.air = a;
+    // no error if null — we will fallback to neutral 0.5
+  }
 
-  // draw districts (clear old)
+  // district helpers
+  function getDistrictId(feature){
+    const p = feature.properties || {};
+    return (p.gid || p.ID || p.id || p.NAME || p.name || p.ADM2_EN || p.local_name || p.code || '') + '';
+  }
   function clearDistrictLayers(){
     Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} });
     state.districtLayers = {};
-  }
-  function getDistrictId(feature){
-    const p = feature.properties || {};
-    return (p.gid || p.ID || p.id || p.NAME || p.name || p.ADM2_EN || p.local_name) + '';
   }
   function drawDistricts(geo){
     clearDistrictLayers();
@@ -395,10 +426,11 @@ document.addEventListener('DOMContentLoaded', () => {
     try{ map.fitBounds(gj.getBounds().pad(0.12)); }catch(e){}
   }
 
-  // build markers grouped by type (but do NOT add to layer control overlays)
+  // build markers by type for visual layer (but don't add overlays)
   function clearTypeLayers(){
     Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} });
     state.typeLayers = {};
+    state.pointsByType = {};
   }
   function buildTypeLayers(pointsGeo){
     clearTypeLayers();
@@ -406,6 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pointsGeo.features.forEach(f=>{
       const t = detectTypeFromFeature(f);
       if (!state.typeLayers[t]) state.typeLayers[t] = L.layerGroup();
+      if (!state.pointsByType[t]) state.pointsByType[t] = [];
       const coords = (f.geometry && f.geometry.coordinates) || [];
       if (!coords || coords.length < 2) return;
       const [lng,lat] = coords;
@@ -415,45 +448,402 @@ document.addEventListener('DOMContentLoaded', () => {
       const icon = makeLetterIcon(letter, color);
       const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${metaName||t}</b><br/><small>${t}</small>`);
       state.typeLayers[t].addLayer(m);
+      // keep geojson feature for nearest calculations
+      state.pointsByType[t].push(f);
     });
-    // do NOT call layerControl.addOverlay(...) — markers controlled only via criteria + toggle
     updateMarkersVisibility();
   }
 
-  // compute which points fall into which district
+  // compute districtStats: simple counts per type (used in many places)
   function computeDistrictStats(pointsGeo, districtsGeo){
     state.districtStats = {};
     if (!pointsGeo || !districtsGeo) return;
     const districts = districtsGeo.features;
-    // init empty
+    // init
     districts.forEach(d=>{
       const id = getDistrictId(d);
       state.districtStats[id] = state.districtStats[id] || {};
     });
-    // assign points to district
+    // assign points
     pointsGeo.features.forEach(p=>{
-      try {
-        if (!p.geometry || !p.geometry.coordinates) return;
-        const pt = turf.point(p.geometry.coordinates);
-        for (const d of districts){
-          const id = getDistrictId(d);
-          if (!id) continue;
-          try {
-            if (turf.booleanPointInPolygon(pt, d)){
-              const t = detectTypeFromFeature(p);
-              state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
-              state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
-              break; // assigned
-            }
-          } catch(e){
-            // skip geometry problems
+      if (!p.geometry || !p.geometry.coordinates) return;
+      const pt = turf.point(p.geometry.coordinates);
+      for (const d of districts){
+        const id = getDistrictId(d);
+        if (!id) continue;
+        try {
+          if (turf.booleanPointInPolygon(pt, d)){
+            const t = detectTypeFromFeature(p);
+            state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
+            state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
+            break;
           }
+        } catch(e){
+          // ignore geometry errors
         }
-      } catch(e){}
+      }
     });
   }
 
-  // render summary table
+  // ---------- CORE: criterion time & normalization ----------
+  const WALK_SPEED_MPS = 1.4; // 1.4 m/s (~5 km/h)
+
+  // For a given criterion (UI name), compute time_minutes per district for *that* criterion
+  function computeTimesForCriterion(criteriaKey, districtsGeo){
+    // get underlying types for this criteria
+    const types = criteriaToTypes[criteriaKey] || [];
+    const times = {}; // id -> time_minutes
+    if (!districtsGeo) return times;
+
+    // precollect points of these types
+    const pts = [];
+    types.forEach(t => {
+      const arr = state.pointsByType[t] || [];
+      for (const pf of arr) pts.push(pf);
+    });
+
+    // for each district
+    districtsGeo.features.forEach(d => {
+      const id = getDistrictId(d);
+      const stats = state.districtStats[id] || {};
+      // count points of matching types inside district using stats
+      let count = 0;
+      types.forEach(t => { count += (stats[t] || 0); });
+
+      const area_m2 = Math.max(1, turf.area(d)); // prevent zero
+      if (count > 0) {
+        // area per point approach
+        const areaPerPoint = area_m2 / count;
+        const radius_m = Math.sqrt(areaPerPoint / Math.PI); // radius corresponding to area per point
+        const time_minutes = (radius_m / WALK_SPEED_MPS) / 60;
+        times[id] = time_minutes;
+      } else {
+        // no points inside district: nearest point approach
+        if (!pts || pts.length === 0) {
+          times[id] = 9999; // very large (no data)
+          return;
+        }
+        // compute centroid of district
+        let centroid;
+        try { centroid = turf.centroid(d); } catch(e){ centroid = turf.centerOfMass(d); }
+        if (!centroid) { times[id] = 9999; return; }
+        // find nearest point distance (meters)
+        let minDist = Infinity;
+        for (const pf of pts) {
+          if (!pf.geometry || !pf.geometry.coordinates) continue;
+          const ppf = turf.point(pf.geometry.coordinates);
+          try {
+            const dist_km = turf.distance(centroid, ppf, {units:'kilometers'});
+            const dist_m = dist_km * 1000;
+            if (dist_m < minDist) minDist = dist_m;
+          } catch(e){}
+        }
+        if (!isFinite(minDist)) times[id] = 9999;
+        else times[id] = (minDist / WALK_SPEED_MPS) / 60;
+      }
+    });
+    return times;
+  }
+
+  // normalize times (smaller is better) to scores 0..1 where 1 best
+  function normalizeTimesToScores(timesMap){
+    const entries = Object.entries(timesMap);
+    if (entries.length === 0) return {};
+    const values = entries.map(([id,t])=>t);
+    const minT = Math.min(...values);
+    const maxT = Math.max(...values);
+    const scores = {};
+    entries.forEach(([id,t])=>{
+      if (!isFinite(t)) {
+        scores[id] = 0; // no data -> worst
+      } else if (maxT === minT) {
+        scores[id] = 1;
+      } else {
+        const norm = 1 - (t - minT) / (maxT - minT); // 1 best
+        scores[id] = Math.max(0, Math.min(1, norm));
+      }
+    });
+    return scores;
+  }
+
+  // ---------- Housing & Price helpers ----------
+  // try to extract housing counts from district properties
+  function extractHousingCountsForDistrict(feature){
+    // look for common keys; return object {apartment: n, house: n, studio: n, total: n}
+    const p = feature.properties || {};
+    const out = { apartment: 0, house: 0, studio: 0, total: 0 };
+    // flexible detection
+    const tryKeys = (regex) => {
+      for (const k of Object.keys(p)) {
+        if (k.toLowerCase().match(regex)) {
+          const v = Number(p[k]);
+          if (!isNaN(v)) return v;
+        }
+      }
+      return 0;
+    };
+    // common direct keys
+    out.apartment = tryKeys(/apart|flat|кварти/i);
+    out.house = tryKeys(/house|dom|будин/i);
+    out.studio = tryKeys(/studio|студ/i);
+    // total housing
+    const tot = tryKeys(/total.*(housing|units)|housing.*total|units|buildings|dwellings/i);
+    out.total = tot || (out.apartment + out.house + out.studio);
+    return out;
+  }
+
+  // compute HousingScore map (0..1 normalized)
+  function computeHousingScores(districtsGeo, selectedType){
+    // selectedType: 'apartment'|'house'|'studio'|'' for overall
+    if (!districtsGeo) return {};
+    const raw = {};
+    let foundAny = false;
+    districtsGeo.features.forEach(f=>{
+      const id = getDistrictId(f);
+      const hc = extractHousingCountsForDistrict(f);
+      let val = 0;
+      if (!selectedType) {
+        val = hc.total;
+      } else {
+        val = hc[selectedType] || 0;
+      }
+      raw[id] = val;
+      if (val && val > 0) foundAny = true;
+    });
+    if (!foundAny) {
+      // no housing data -> neutral 0.5 for all
+      const neutral = {};
+      districtsGeo.features.forEach(f=> neutral[getDistrictId(f)] = 0.5);
+      return neutral;
+    }
+    // normalize so larger -> 1
+    const values = Object.values(raw);
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    const out = {};
+    Object.entries(raw).forEach(([id,v])=>{
+      if (maxV === minV) out[id] = 1;
+      else out[id] = Math.max(0, Math.min(1, (v - minV) / (maxV - minV)));
+    });
+    return out;
+  }
+
+  // PriceScore: if user gives desired price -> closeness better
+  function computePriceScores(districtsGeo, desiredPrice){
+    if (!districtsGeo || !desiredPrice) {
+      // if not provided, return zeros
+      const z = {};
+      districtsGeo.features.forEach(f=> z[getDistrictId(f)] = 0);
+      return z;
+    }
+    const diffs = {};
+    districtsGeo.features.forEach(f=>{
+      const id = getDistrictId(f);
+      const p = f.properties || {};
+      const price = Number(p.price_avg || p.price || p.price_m2 || NaN);
+      if (!isFinite(price)) diffs[id] = 1e9;
+      else diffs[id] = Math.abs(price - desiredPrice);
+    });
+    const vals = Object.values(diffs);
+    const minD = Math.min(...vals);
+    const maxD = Math.max(...vals);
+    const out = {};
+    Object.entries(diffs).forEach(([id,d])=>{
+      if (d >= 1e9) out[id] = 0;
+      else if (maxD === minD) out[id] = 1;
+      else out[id] = 1 - (d - minD) / (maxD - minD); // closer -> 1
+    });
+    return out;
+  }
+
+  // ---------- Environment scores (from external JSONs) ----------
+  // convention: safety & noise: lower raw => better; air: higher raw => better (adjust if needed)
+  function computeEnvScoresMap(districtsGeo){
+    const out = { safety: {}, noise: {}, air: {} };
+    if (!districtsGeo) return out;
+    const ids = districtsGeo.features.map(f => getDistrictId(f));
+    // helper normalizer
+    const normalizeMap = (rawMap, lowerBetter=true) => {
+      // rawMap: id -> numeric (may be missing)
+      const present = [];
+      ids.forEach(id=> { if (rawMap && rawMap[id] !== undefined && rawMap[id] !== null && !isNaN(Number(rawMap[id]))) present.push(Number(rawMap[id])); });
+      if (present.length === 0) {
+        // neutral 0.5
+        const n = {}; ids.forEach(id=> n[id] = 0.5); return n;
+      }
+      const minV = Math.min(...present);
+      const maxV = Math.max(...present);
+      const res = {};
+      ids.forEach(id=>{
+        const v = rawMap && rawMap[id] !== undefined && !isNaN(Number(rawMap[id])) ? Number(rawMap[id]) : null;
+        if (v === null) { res[id] = 0.5; return; }
+        if (maxV === minV) res[id] = 1;
+        else {
+          let norm = (v - minV) / (maxV - minV);
+          if (lowerBetter) norm = 1 - norm; // invert
+          res[id] = Math.max(0, Math.min(1, norm));
+        }
+      });
+      return res;
+    };
+
+    out.safety = normalizeMap(state.envData.safety || {}, true);
+    out.noise = normalizeMap(state.envData.noise || {}, true);
+    out.air = normalizeMap(state.envData.air || {}, false); // assume air higher better (if different, change)
+    return out;
+  }
+
+  // ---------- Final scoring ----------
+  // sliderWeight: center=50 => multiplier 1, range [0..100] -> [0..2]
+  function sliderWeightValue(v){
+    const val = Number(v || 50);
+    return 1 + (val - 50) / 50; // 0..2 where 50 -> 1
+  }
+
+  function computeFinalScoresAndApply(districtsGeo){
+    if (!districtsGeo) return;
+
+    // active criteria
+    const activeCriteria = getActiveCriteriaSet();
+
+    // compute per-criterion normalized scores
+    const criterionScores = {}; // crit -> {id: score}
+    activeCriteria.forEach(c=>{
+      const times = computeTimesForCriterion(c, districtsGeo);
+      criterionScores[c] = normalizeTimesToScores(times);
+    });
+
+    // group sums (sum of normalized scores across chosen criteria in that group)
+    // Housing
+    const selectedHousingType = (document.getElementById('filter_type')?.value || '').toLowerCase();
+    let housingTypeKey = '';
+    if (selectedHousingType === 'apartment' || selectedHousingType === 'flat') housingTypeKey = 'apartment';
+    else if (selectedHousingType === 'studio') housingTypeKey = 'studio';
+    else if (selectedHousingType === 'house') housingTypeKey = 'house';
+    else housingTypeKey = ''; // overall
+
+    const housingScores = computeHousingScores(districtsGeo, housingTypeKey);
+
+    // Price
+    const desiredPriceRaw = Number(document.getElementById('filter_price')?.value || 0) || 0;
+    const priceScores = computePriceScores(districtsGeo, desiredPriceRaw > 0 ? desiredPriceRaw : null);
+
+    // env
+    const envPre = computeEnvScoresMap(districtsGeo);
+    // optionally weight env by sliders w_safety, w_noise, w_air (we will multiply into final sum)
+    const w_safety = sliderWeightValue(document.getElementById('w_safety')?.value || 50);
+    const w_noise = sliderWeightValue(document.getElementById('w_noise')?.value || 50);
+    const w_air   = sliderWeightValue(document.getElementById('w_air')?.value || 50);
+
+    // multipliers for groups
+    const mw_transport = sliderWeightValue(document.getElementById('w_transport')?.value || 50);
+    const mw_infra = sliderWeightValue(document.getElementById('w_infra')?.value || 50);
+
+    // compute raw sum per district
+    const rawScores = {};
+    districtsGeo.features.forEach(f=>{
+      const id = getDistrictId(f);
+      let sumInfra = 0;
+      let sumTransport = 0;
+
+      // sum over active infra criteria
+      activeCriteria.forEach(c=>{
+        if (infraCriteria.has(c)) {
+          const s = (criterionScores[c] && criterionScores[c][id] !== undefined) ? criterionScores[c][id] : 0;
+          sumInfra += s;
+        }
+        if (transportCriteria.has(c)) {
+          const s = (criterionScores[c] && criterionScores[c][id] !== undefined) ? criterionScores[c][id] : 0;
+          sumTransport += s;
+        }
+      });
+
+      const housing = housingScores[id] || 0; // 0..1 (or 0.5 neutral)
+      const price = priceScores[id] || 0;     // 0..1 or 0 if not provided
+
+      const safety = (envPre.safety && envPre.safety[id] !== undefined) ? envPre.safety[id] : 0.5;
+      const noise  = (envPre.noise  && envPre.noise[id]  !== undefined) ? envPre.noise[id]  : 0.5;
+      const air    = (envPre.air    && envPre.air[id]    !== undefined) ? envPre.air[id]    : 0.5;
+
+      // final raw (as user specified):
+      // HousingScore + PriceScore + (infra_sum_normalized) * infraMultiplier + (transport_sum_normalized) * transportMultiplier + Safety + Noise + Air
+      // Note: infra & transport are sums of per-criterion normalized [0..1]. They are NOT renormalized again here.
+      const raw = housing + price + (sumInfra * mw_infra) + (sumTransport * mw_transport) + (safety * w_safety) + (noise * w_noise) + (air * w_air);
+      rawScores[id] = Math.max(0, raw);
+    });
+
+    // convert rawScores to normalized and comfort 1..10 for UI
+    const vals = Object.values(rawScores);
+    const minR = Math.min(...vals);
+    const maxR = Math.max(...vals);
+    const finalMap = {}; // id -> {raw, normalized, comfort}
+    Object.entries(rawScores).forEach(([id, raw])=>{
+      const norm = (maxR === minR) ? 1 : (raw - minR) / (maxR - minR);
+      const comfort = Math.round(norm * 9 + 1); // 1..10
+      finalMap[id] = { raw, normalized: norm, comfort };
+    });
+
+    // apply to district features and style polygons by comfort
+    districtsGeo.features.forEach(f=>{
+      const id = getDistrictId(f);
+      const entry = finalMap[id];
+      if (f.properties) {
+        delete f.properties._tmp_times; // cleanup
+        f.properties.finalRaw = entry ? entry.raw : 0;
+        f.properties.finalNormalized = entry ? entry.normalized : 0;
+        f.properties.comfort = entry ? entry.comfort : 1;
+      }
+      const layer = state.districtLayers[id];
+      if (layer && entry) {
+        const c = entry.comfort || 1;
+        const color = c>=9? '#005a32': c>=7? '#2ca02c': c>=5? '#ffce73': c>=3? '#ff8c42':'#c73a00';
+        try { layer.setStyle({ fillColor: color, fillOpacity:0.6, color: shadeColor(color, -10) }); } catch(e){}
+      }
+    });
+
+    // refresh UI
+    renderStatsTable(districtsGeo);
+    renderDistrictListSorted(districtsGeo);
+  }
+
+  // ---------- UI helpers ----------
+  function getActiveCriteriaSet(){
+    const set = new Set();
+    document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
+    return set;
+  }
+
+  // markers visibility only depends on active criteria + toggle
+  function updateMarkersVisibility(){
+    if (!state.markersEnabled) {
+      Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
+      return;
+    }
+    const active = getActiveCriteriaSet();
+    const allowed = new Set();
+    active.forEach(cr=>{
+      const types = criteriaToTypes[cr] || [];
+      types.forEach(tt=>allowed.add(tt.toLowerCase()));
+    });
+    if (allowed.size === 0){
+      Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
+      return;
+    }
+    Object.keys(state.typeLayers).forEach(t=>{
+      const layer = state.typeLayers[t];
+      let show = false;
+      for (const a of allowed){
+        if (t === a || t.indexOf(a)!==-1 || a.indexOf(t)!==-1){ show = true; break; }
+      }
+      if (show){
+        if (!map.hasLayer(layer)) layer.addTo(map);
+      } else {
+        if (map.hasLayer(layer)) map.removeLayer(layer);
+      }
+    });
+  }
+
+  // render table/list/top3 (reuse earlier structure)
   function renderStatsTable(districtsGeo){
     const tbody = document.querySelector('#statsTable tbody'); if(!tbody) return; tbody.innerHTML='';
     const features = (districtsGeo && districtsGeo.features) || [];
@@ -474,7 +864,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // render district list + top3 (TOP3 only when criteria active)
   function renderTop3(sortedTop){
     const container = document.getElementById('top3List'); if(!container) return; container.innerHTML='';
     if (!sortedTop || sortedTop.length===0) return;
@@ -532,161 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function openDistrictPage(id){ if(!id) return; window.open(`districts/${id}.html`,'_blank'); }
   window.openDistrictPage = openDistrictPage;
 
-  function getActiveCriteriaSet(){
-    const set = new Set();
-    document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
-    return set;
-  }
-
-  // markers visibility logic: show only types that correspond to active criteria
-  function updateMarkersVisibility(){
-    if (!state.markersEnabled) {
-      Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
-      return;
-    }
-    const active = getActiveCriteriaSet();
-    const allowed = new Set();
-    active.forEach(cr=>{
-      const types = criteriaToTypes[cr] || [];
-      types.forEach(tt=>allowed.add(tt.toLowerCase()));
-    });
-    if (allowed.size === 0){
-      Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
-      return;
-    }
-    Object.keys(state.typeLayers).forEach(t=>{
-      const layer = state.typeLayers[t];
-      let show = false;
-      for (const a of allowed){
-        if (t === a || t.indexOf(a)!==-1 || a.indexOf(t)!==-1){ show = true; break; }
-      }
-      if (show){
-        if (!map.hasLayer(layer)) layer.addTo(map);
-      } else {
-        if (map.hasLayer(layer)) map.removeLayer(layer);
-      }
-    });
-  }
-
-  // --- CORE: new adaptive scoring function ---
-  // sliderWeight: center=50 => multiplier 1, range [0..100] -> [0..2]
-  function sliderWeight(id){
-    const v = parseInt(document.getElementById(id).value || 50, 10);
-    return 1 + (v - 50) / 50; // 0..2 where 50 -> 1
-  }
-
-  function computeComfortAndRefresh(){
-    if (!state.districtsGeo) return;
-
-    const activeCriteria = getActiveCriteriaSet();
-
-    // if no criteria selected => reset styles & clear top3 and return
-    if (activeCriteria.size === 0) {
-      // reset polygon styles
-      Object.values(state.districtLayers).forEach(layer => {
-        try {
-          layer.setStyle({ fillColor: '#f7f9f8', fillOpacity:0.45, color: '#666' });
-        } catch(e){}
-      });
-      document.getElementById('top3List').innerHTML = '';
-      // remove comfort props so initial state has no top
-      state.districtsGeo.features.forEach(f => { if (f.properties) delete f.properties.comfort; });
-      renderDistrictListSorted(state.districtsGeo);
-      renderStatsTable(state.districtsGeo);
-      return;
-    }
-
-    // compute multipliers
-    const mw_transport = sliderWeight('w_transport');
-    const mw_infra = sliderWeight('w_infra');
-    const mw_safety = sliderWeight('w_safety');
-    const mw_noise = sliderWeight('w_noise');
-    const totalMultiplier = (mw_transport + mw_infra + mw_safety + mw_noise) || 1;
-
-    // raw scores per district
-    const rawScores = {};
-
-    state.districtsGeo.features.forEach(f=>{
-      const id = getDistrictId(f);
-      const stats = state.districtStats[id] || {};
-      let raw = 0;
-
-      // transport (metro, bus)
-      if (activeCriteria.has('metro') || activeCriteria.has('bus')) {
-        const metroCount = (stats.metro || 0);
-        const busCount = (stats.bus_stop || 0);
-        raw += (metroCount * 1.5 + busCount * 0.6) * mw_transport;
-      }
-
-      // infra: schools / kindergartens / universities / parks / dogparks
-      if (activeCriteria.has('schools') || activeCriteria.has('kindergartens') || activeCriteria.has('universities') || activeCriteria.has('parks') || activeCriteria.has('dogparks')) {
-        const schools = (stats.school || 0);
-        const kind = (stats.kindergarten || 0);
-        const univ = (stats.university || 0);
-        const park = (stats.park || 0) + (stats.recreation_ground || 0);
-        const dogp = (stats.dog_park || 0);
-        // weighted infra sum
-        raw += ((schools * 1.0) + (kind * 0.6) + (univ * 1.4) + (park * 0.8) + (dogp * 0.5)) * mw_infra;
-      }
-
-      // safety / jobs / shopping
-      if (activeCriteria.has('offices') || activeCriteria.has('supermarkets')) {
-        const offices = (stats.office || 0);
-        const shops = (stats.supermarket || 0) + (stats.shop || 0);
-        raw += ((offices * 0.02) + (shops * 0.6)) * mw_safety;
-      }
-
-      // parking
-      if (activeCriteria.has('parking')) {
-        raw += (stats.parking || 0) * 0.3 * mw_safety;
-      }
-
-      // health
-      if (activeCriteria.has('health')) {
-        raw += ((stats.hospital || 0) + (stats.pharmacy || 0) + (stats.clinic || 0)) * 0.8 * mw_infra;
-      }
-
-      // noise is handled as negative: if noise slider is high (user wants to minimize), reduce score
-      // We do a simple approach: noise slider value >50 reduces score proportionally.
-      const noisePref = mw_noise; // ranges 0..2; higher means user cares more about minimizing noise
-      // NOTE: we don't have explicit noise points in dataset; we approximate with density (total)
-      const density = (state.districtStats[id] && state.districtStats[id].total) || 0;
-      // assume higher density -> more noise: subtract tiny factor
-      raw -= (density * 0.05) * (noisePref - 1);
-
-      rawScores[id] = Math.max(0, raw);
-    });
-
-    // normalize rawScores to 0..1
-    const values = Object.values(rawScores);
-    const maxRaw = Math.max(...values, 0.00001);
-
-    const scored = Object.entries(rawScores).map(([id, raw])=>{
-      const norm = raw / maxRaw; // 0..1
-      const comfort = Math.round(norm * 9 + 1); // map to 1..10
-      return { id, raw, norm, comfort };
-    });
-
-    // apply to features and layers
-    scored.forEach(s=>{
-      // store comfort in feature props
-      const f = state.districtsGeo.features.find(ff => getDistrictId(ff) === s.id);
-      if (f && f.properties) f.properties.comfort = s.comfort;
-      const layer = state.districtLayers[s.id];
-      if (layer){
-        const c = s.comfort || 1;
-        const color = c>=9? '#005a32': c>=7? '#2ca02c': c>=5? '#ffce73': c>=3? '#ff8c42':'#c73a00';
-        layer.setStyle({fillColor: color, fillOpacity:0.6, color: shadeColor(color,-10)});
-      }
-    });
-
-    // refresh UI
-    renderStatsTable(state.districtsGeo);
-    renderDistrictListSorted(state.districtsGeo);
-    // top3 already rendered inside renderDistrictListSorted when criteria active
-  }
-
-  // utility: darken/lighten color
+  // color shade util
   function shadeColor(color, percent){
     try {
       const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent;
@@ -698,9 +933,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(e){ return color; }
   }
 
-  // main load flow
+  // ---------- main load ----------
   async function mainLoad(){
     document.getElementById('fileStatus').textContent = 'Завантаження геоданих з GitHub / assets...';
+    // load env files in background (try)
+    loadEnvFiles();
     const [districtsGeo, pointsGeoLocal] = await Promise.all([tryFetchJSON(defaultDistrictsPath), tryFetchJSON(defaultPointsPathLocal)]);
     let pointsGeo = pointsGeoLocal;
     if (!pointsGeo) pointsGeo = await tryFetchJSON(remotePointsURL);
@@ -719,7 +956,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (state.districtsGeo && state.pointsGeo){
       computeDistrictStats(state.pointsGeo, state.districtsGeo);
-      // initial render: no top3 (UI shows only districts list with default neutral colors)
       renderStatsTable(state.districtsGeo);
       renderDistrictListSorted(state.districtsGeo);
       document.getElementById('fileStatus').textContent = 'Готово — вибери критерії та натисни "Показати результати".';
@@ -727,7 +963,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   mainLoad();
 
-  // file input (districts)
+  // File input (optional district load UI may not exist)
   document.getElementById('btnLoadDistrict')?.addEventListener('click', async ()=>{
     const f = document.getElementById('fileDistricts')?.files?.[0];
     if (!f){ alert('Оберіть файл з районами (GeoJSON)'); return; }
@@ -748,7 +984,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // UI wiring
   document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> updateMarkersVisibility()));
-  document.getElementById('applyFilters')?.addEventListener('click', ()=>{ computeComfortAndRefresh(); updateMarkersVisibility(); });
+  document.getElementById('applyFilters')?.addEventListener('click', async ()=>{
+    // try reload env files so user can drop them in between runs
+    await loadEnvFiles();
+    computeFinalScoresAndApply(state.districtsGeo);
+    updateMarkersVisibility();
+  });
 
   document.getElementById('resetFilters')?.addEventListener('click', ()=>{
     document.querySelectorAll('.crit').forEach(cb=>cb.checked=false);
@@ -757,11 +998,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('w_infra').value=50;
     document.getElementById('w_safety').value=50;
     document.getElementById('w_noise').value=50;
-    // remove comfort props from features to revert to initial state
+    document.getElementById('w_air').value=50;
+    // remove comfort props and reset styles
     if (state.districtsGeo && state.districtsGeo.features) {
-      state.districtsGeo.features.forEach(f => { if (f.properties) delete f.properties.comfort; });
+      state.districtsGeo.features.forEach(f => { if (f.properties) { delete f.properties.comfort; delete f.properties.finalRaw; delete f.properties.finalNormalized; } });
     }
-    // reset polygon styles
     Object.values(state.districtLayers).forEach(layer => { try{ layer.setStyle({ fillColor:'#f7f9f8', fillOpacity:0.45, color:'#666' }); }catch(e){} });
     document.getElementById('top3List').innerHTML = '';
     renderDistrictListSorted(state.districtsGeo);
@@ -771,17 +1012,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('price_reset')?.addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
 
-  // marker toggle control
+  // marker toggle
   const toggle = document.getElementById('markerToggle');
   function setToggleVisual(on){ if (on){ toggle.classList.add('on'); toggle.classList.remove('off'); } else { toggle.classList.remove('on'); toggle.classList.add('off'); } }
   setToggleVisual(state.markersEnabled);
   toggle.addEventListener('click', ()=>{ state.markersEnabled = !state.markersEnabled; setToggleVisual(state.markersEnabled); updateMarkersVisibility(); });
 
-  // debug
-  window._BETON = Object.assign(window._BETON||{}, { state, updateMarkersVisibility, computeDistrictStats, buildTypeLayers, computeComfortAndRefresh });
+  // debug exposure
+  window._BETON = Object.assign(window._BETON||{}, { state, computeFinalScoresAndApply, computeTimesForCriterion, computeDistrictStats });
 
   document.getElementById('year').textContent = new Date().getFullYear();
 }); // DOMContentLoaded
 </script>
 </body>
-</html>
+  </html>
