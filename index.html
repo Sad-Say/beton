@@ -80,7 +80,6 @@
   .status{font-size:13px;color:var(--muted);margin-top:8px}
   footer{max-width:1200px;margin:18px auto;padding:12px;color:#666;font-size:13px;text-align:center}
 
-  /* small toggle (0.75) positioned under layer control */
   .map-toggle {
     position: absolute;
     top: 56px;
@@ -115,7 +114,6 @@
 
   .map-card .leaflet-control-layers { position:absolute; top:12px; right:12px; z-index:1199; background:#fff; border-radius:8px; padding:6px; box-shadow:0 8px 20px rgba(0,0,0,0.12); }
 
-  /* Range styles (center is neutral) */
   input[type="range"]{
     -webkit-appearance: none; appearance: none; height: 8px; background:#e6e6e6; border-radius:999px; outline:none;
   }
@@ -235,7 +233,7 @@
 <!-- FLOATING TOP-3 -->
 <div class="top3-box" id="top3Box" aria-live="polite">
   <h4>ТОП-3 районів</h4>
-  <div id="top3List"><!-- початково пусто (немає топу) --></div>
+  <div id="top3List"></div>
 </div>
 
 <footer>© <span id="year"></span> БЕТОН — демо.</footer>
@@ -250,7 +248,8 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   // paths
-  const defaultDistrictsPath = 'assets/kyiv_districts.geojson';
+  // <-- тут вказано raw URL на твій kyiv_districts.geojson -->
+  const defaultDistrictsPath = 'https://raw.githubusercontent.com/Sad-Say/beton/aac0ebe56eb742ba892f0cef6c5eda5dae16499c/kyiv_districts.geojson';
   const defaultPointsPathLocal = 'assets/points.geojson';
   const remotePointsURL = 'https://raw.githubusercontent.com/Sad-Say/beton/2c3f4fc3b908862a24d16e991dbba78d6628f33a/points.geojson';
 
@@ -281,13 +280,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   setTimeout(()=>{ try{ map.invalidateSize(); }catch(e){} }, 300);
 
-  // small helper: create letter icon for point types
   function makeLetterIcon(letter, color){
     const svg = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'><circle cx='18' cy='14' r='12' fill='${color}' /><text x='18' y='18.5' font-size='14' fill='#fff' font-weight='700' text-anchor='middle' alignment-baseline='middle'>${letter}</text></svg>`);
     return L.icon({ iconUrl: 'data:image/svg+xml;utf8,'+svg, iconSize:[36,36], iconAnchor:[18,36], popupAnchor:[0,-28] });
   }
 
-  // what types we care about and their letter + color
   const typeMap = {
     school: ['S','#1f8ef1'], kindergarten: ['K','#f39c12'], university: ['U','#9b59b6'],
     metro: ['M','#e74c3c'], park: ['P','#2ecc71'], recreation_ground: ['R','#27ae60'],
@@ -297,7 +294,6 @@ document.addEventListener('DOMContentLoaded', () => {
     other: ['?','#777']
   };
 
-  // detect type from feature properties (heuristic)
   function detectTypeFromFeature(f){
     const p = f.properties || {};
     const amenity = (p.amenity||'').toString().toLowerCase();
@@ -325,7 +321,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return 'other';
   }
 
-  // criteria => point types mapping
   const criteriaToTypes = {
     schools: ['school'],
     kindergartens: ['kindergarten'],
@@ -340,17 +335,15 @@ document.addEventListener('DOMContentLoaded', () => {
     bus: ['bus_stop']
   };
 
-  // app state
   const state = {
     districtsGeo: null,
     pointsGeo: null,
     districtLayers: {},
-    typeLayers: {},      // mapping type -> LayerGroup (markers)
-    districtStats: {},   // aggregated counts per district
+    typeLayers: {},
+    districtStats: {},
     markersEnabled: true
   };
 
-  // simple fetcher
   async function tryFetchJSON(path){
     try {
       const r = await fetch(path);
@@ -361,11 +354,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // load functions
   async function loadDistricts(){ return await tryFetchJSON(defaultDistrictsPath); }
   async function loadPoints(){ let g = await tryFetchJSON(defaultPointsPathLocal); if (g) return g; return await tryFetchJSON(remotePointsURL); }
 
-  // draw districts polygons
   function clearDistrictLayers(){
     Object.values(state.districtLayers).forEach(l=>{ try{ l.remove(); }catch(e){} });
     state.districtLayers = {};
@@ -393,7 +384,6 @@ document.addEventListener('DOMContentLoaded', () => {
     try{ map.fitBounds(gj.getBounds().pad(0.12)); }catch(e){}
   }
 
-  // build marker groups from points geojson
   function clearTypeLayers(){
     Object.values(state.typeLayers).forEach(l=>{ try{ l.clearLayers(); l.remove(); }catch(e){} });
     state.typeLayers = {};
@@ -414,12 +404,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const m = L.marker([lat,lng], {icon}).bindPopup(`<b>${metaName||t}</b><br/><small>${t}</small>`);
       state.typeLayers[t].addLayer(m);
     });
-    // DON'T add overlays to layerControl — points are toggled only via criteria
-    // do NOT auto-add any type layers to map; visibility controlled by updateMarkersVisibility()
     updateMarkersVisibility();
   }
 
-  // compute district aggregation by point types using turf booleanPointInPolygon
   function computeDistrictStats(pointsGeo, districtsGeo){
     state.districtStats = {};
     if (!pointsGeo || !districtsGeo) return;
@@ -440,16 +427,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const t = detectTypeFromFeature(p);
             state.districtStats[id][t] = (state.districtStats[id][t]||0) + 1;
             state.districtStats[id].total = (state.districtStats[id].total||0) + 1;
-            break; // point counted once
+            break;
           }
         }
-      } catch(e){
-        // ignore geometry errors
-      }
+      } catch(e){}
     });
   }
 
-  // UI renderers
   function renderStatsTable(districtsGeo){
     const tbody = document.querySelector('#statsTable tbody'); if(!tbody) return; tbody.innerHTML='';
     const features = (districtsGeo && districtsGeo.features) || [];
@@ -472,10 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderTop3(sortedTop){
     const container = document.getElementById('top3List'); if(!container) return; container.innerHTML='';
-    if (!sortedTop || sortedTop.length===0) {
-      // leave empty (user asked: no top in initial/reset state)
-      return;
-    }
+    if (!sortedTop || sortedTop.length===0) return;
     sortedTop.forEach((d,i)=>{
       const el = document.createElement('div'); el.className='top3-item';
       el.innerHTML = `<div><strong>${i+1}. ${d.name}</strong><div class="small">Комфорт ${d.comfort}/10 · ${ (d.price_avg||0).toLocaleString() } грн/м²</div></div>
@@ -485,15 +466,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function renderDistrictListSorted(districtsGeo, showTop=true){
+  function renderDistrictListSorted(districtsGeo){
     const container = document.getElementById('districtList'); if(!container) return; container.innerHTML='';
     const features = (districtsGeo && districtsGeo.features) || [];
     const arr = features.map(f=>{
       const props = f.properties||{};
       const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name)+'';
       const d = {
-        id,
-        name: props.name||props.NAME||props.ADM2_EN||id,
+        id, name: props.name||props.NAME||props.ADM2_EN||id,
         population: props.population||0,
         price_avg: props.price_avg||0,
         schools: (state.districtStats[id] && state.districtStats[id].school) || 0,
@@ -504,15 +484,9 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       return d;
     });
-    // sort by comfort desc (comfort already computed by computeComfortAndRefresh)
     const sorted = arr.sort((a,b)=>b.comfort - a.comfort);
-    // render top3 if requested AND at least one criterion active
     const activeCriteria = getActiveCriteriaSet();
-    if (activeCriteria.size > 0) {
-      renderTop3(sorted.slice(0,3));
-    } else {
-      renderTop3([]); // clear top
-    }
+    if (activeCriteria.size > 0) renderTop3(sorted.slice(0,3)); else renderTop3([]);
     sorted.forEach(d=>{
       const el = document.createElement('div'); el.className='district-row';
       el.innerHTML = `<div><div class="district-name">${d.name}</div>
@@ -536,7 +510,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function openDistrictPage(id){ if(!id) return; window.open(`districts/${id}.html`,'_blank'); }
   window.openDistrictPage = openDistrictPage;
 
-  // -- MARKERS VISIBILITY: show only types that match active criteria
   function getActiveCriteriaSet(){
     const set = new Set();
     document.querySelectorAll('.crit').forEach(cb=>{ if (cb.checked) set.add(cb.dataset.crit); });
@@ -555,11 +528,9 @@ document.addEventListener('DOMContentLoaded', () => {
       types.forEach(tt=>allowed.add(tt.toLowerCase()));
     });
     if (allowed.size === 0){
-      // no criteria -> hide all markers
       Object.values(state.typeLayers).forEach(l=>{ if (map.hasLayer(l)) map.removeLayer(l); });
       return;
     }
-    // show only those types that are in allowed
     Object.keys(state.typeLayers).forEach(t=>{
       const layer = state.typeLayers[t];
       let show = false;
@@ -574,48 +545,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // calculate comfort (adaptive formula) and refresh map + lists
   function computeComfortAndRefresh(){
     if (!state.districtsGeo) return;
-    // get multipliers from sliders: map 0..100 -> multiplier 0..2 (center 50 = 1)
-    function multiplierFromSlider(v){
-      const val = parseInt(v||50,10);
-      return 1 + ((val - 50) / 50); // 0..2
-    }
+    function multiplierFromSlider(v){ const val = parseInt(v||50,10); return 1 + ((val - 50) / 50); }
     const mw_transport = multiplierFromSlider(document.getElementById('w_transport').value);
     const mw_infra = multiplierFromSlider(document.getElementById('w_infra').value);
     const mw_safety = multiplierFromSlider(document.getElementById('w_safety').value);
     const mw_noise = multiplierFromSlider(document.getElementById('w_noise').value);
     const totalW = mw_transport + mw_infra + mw_safety + mw_noise || 1;
-
-    // active criteria set (we'll only show top if some criteria are selected)
     const activeCrit = getActiveCriteriaSet();
 
     state.districtsGeo.features.forEach(f=>{
       const props = f.properties || {};
       const id = (props.gid||props.ID||props.id||props.NAME||props.name||props.ADM2_EN||props.local_name) + '';
       const stats = state.districtStats[id] || {};
-
-      // sub-scores normalized 0..10 (tweakable)
-      const transportScore = Math.min(10, (stats.metro||0) * 2); // stations count
+      const transportScore = Math.min(10, (stats.metro||0) * 2);
       const infraScore = Math.min(10, ((stats.school||0) * 0.6 + (stats.kindergarten||0)*0.4 + (stats.university||0)*1.0));
-      const safetyScore = Math.min(10, ((stats.office||0) + (stats.supermarket||0)) / 200); // rough proxy
-      const noiseScore = 5; // placeholder for now
-
-      // weighted average with multipliers; noise is inverted (less noise -> good)
+      const safetyScore = Math.min(10, ((stats.office||0) + (stats.supermarket||0)) / 200);
+      const noiseScore = 5;
       const raw = (transportScore * mw_transport + infraScore * mw_infra + safetyScore * mw_safety + (10 - noiseScore) * mw_noise) / totalW;
-
-      // scale raw to 1..10
       let comfort = Math.round(Math.max(1, Math.min(10, raw)));
-
-      // price penalty if price filter is set
       const priceLimit = parseInt(document.getElementById('filter_price').value || 0,10) || 0;
       if (priceLimit && props.price_avg && props.price_avg > priceLimit) comfort = Math.max(1, comfort - 2);
-
-      // if no criteria selected, we intentionally do not produce a top: but still keep comfort computed (for later)
       props.comfort = comfort;
-
-      // update polygon color by comfort
       const layer = state.districtLayers[id];
       if (layer){
         const c = props.comfort || 1;
@@ -624,13 +576,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // update table & list
     renderStatsTable(state.districtsGeo);
     renderDistrictListSorted(state.districtsGeo);
-    // renderTop3 is handled inside renderDistrictListSorted (depends on active criteria)
   }
 
-  // helper: shade color
   function shadeColor(color, percent){
     try {
       const f=parseInt(color.slice(1),16), t=percent<0?0:255, p=percent<0?percent*-1:percent;
@@ -642,15 +591,15 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch(e){ return color; }
   }
 
-  // initial load flow
   async function mainLoad(){
-    document.getElementById('fileStatus').textContent = 'Завантаження (assets/ та GitHub raw)...';
+    document.getElementById('fileStatus').textContent = 'Завантаження геоданих з GitHub / assets...';
+    // try remote districts first (raw link embedded), then local points or remote points
     const [districtsGeo, pointsGeoLocal] = await Promise.all([tryFetchJSON(defaultDistrictsPath), tryFetchJSON(defaultPointsPathLocal)]);
     let pointsGeo = pointsGeoLocal;
     if (!pointsGeo) pointsGeo = await tryFetchJSON(remotePointsURL);
 
     if (!districtsGeo) {
-      document.getElementById('fileStatus').textContent = 'Не знайдено локального файлу районів (assets/kyiv_districts.geojson). Завантаж файл у папку assets/ або додай raw URL у код.';
+      document.getElementById('fileStatus').textContent = 'Не вдалося завантажити GeoJSON районів за вказаним URL. Поклади kyiv_districts.geojson у assets/ або перевір URL.';
     } else {
       state.districtsGeo = districtsGeo;
       drawDistricts(districtsGeo);
@@ -664,54 +613,42 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.districtsGeo && state.pointsGeo){
       computeDistrictStats(state.pointsGeo, state.districtsGeo);
       renderStatsTable(state.districtsGeo);
-      // do NOT show top initially (user requested no top in initial position)
-      renderDistrictListSorted(state.districtsGeo); // this will leave top empty unless criteria selected
+      renderDistrictListSorted(state.districtsGeo);
       document.getElementById('fileStatus').textContent = 'Готово — вибери критерії та натисни "Показати результати".';
     }
   }
   mainLoad();
 
-  // event wiring
   document.getElementById('applyFilters').addEventListener('click', ()=>{
     computeComfortAndRefresh();
     updateMarkersVisibility();
   });
 
   document.getElementById('resetFilters').addEventListener('click', ()=>{
-    // clear criteria
     document.querySelectorAll('.crit').forEach(cb=>cb.checked=false);
     document.getElementById('filter_price').value='';
     document.getElementById('w_transport').value=50;
     document.getElementById('w_infra').value=50;
     document.getElementById('w_safety').value=50;
     document.getElementById('w_noise').value=50;
-
-    // clear top3
-    document.getElementById('top3List').innerHTML = ''; // initial state: no top
-    // recompute comfort neutral (will recolor polygons according to neutral multipliers)
+    document.getElementById('top3List').innerHTML = '';
     computeComfortAndRefresh();
-    // hide markers because no criteria selected
     updateMarkersVisibility();
   });
 
   document.getElementById('price_reset').addEventListener('click', ()=>{ document.getElementById('filter_price').value=''; });
 
-  // when user toggles criteria, update markers visibility (but top will only be generated after clicking Apply)
-  document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> {
-    updateMarkersVisibility();
-  }));
+  document.querySelectorAll('.crit').forEach(cb=> cb.addEventListener('change', ()=> updateMarkersVisibility()));
 
-  // marker toggle button (global hide/show)
   const toggle = document.getElementById('markerToggle');
   function setToggleVisual(on){ if (on){ toggle.classList.add('on'); toggle.classList.remove('off'); } else { toggle.classList.remove('on'); toggle.classList.add('off'); } }
   setToggleVisual(state.markersEnabled);
   toggle.addEventListener('click', ()=>{ state.markersEnabled = !state.markersEnabled; setToggleVisual(state.markersEnabled); updateMarkersVisibility(); });
 
-  // expose for debugging
   window._BETON = Object.assign(window._BETON||{}, { state, updateMarkersVisibility, computeDistrictStats, buildTypeLayers, computeComfortAndRefresh });
 
   document.getElementById('year').textContent = new Date().getFullYear();
 }); // DOMContentLoaded
 </script>
 </body>
-          </html>
+  </html>
